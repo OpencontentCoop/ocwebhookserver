@@ -1,0 +1,45 @@
+<?php
+
+/** @var eZModule $Module */
+$Module = $Params['Module'];
+$Result = array();
+$tpl = eZTemplate::factory();
+$http = eZHTTPTool::instance();
+$webHook = OCWebHook::fetch((int)$Params['ID']);
+if ($webHook instanceof OCWebHook) {
+    $currentURI = '/' . $Module->currentModule() . '/' . $Module->currentView() . '/' . $webHook->attribute('id');
+
+    try {
+        $offset = isset($Params['UserParameters']['offset']) ? (int)$Params['UserParameters']['offset'] : 0; // Offset for pagination
+        $limit = eZPreferences::value('webhooks_limit');
+        $limit = $limit ? $limit : 10; // Default limit is 10
+        $jobs = OCWebHookJob::fetchListByWebHookId($webHook->attribute('id'), $offset, $limit);
+        $jobCount = OCWebHookJob::count(OCWebHookJob::definition(), ['webhook_id' => (int)$webHook->attribute('id')]);
+
+        $tpl->setVariable('jobs', $jobs);
+        $tpl->setVariable('offset', $offset);
+        $tpl->setVariable('limit', $limit);
+        $tpl->setVariable('uri', $currentURI);
+        $tpl->setVariable('job_count', $jobCount);
+        $tpl->setVariable('view_parameters', $Params['UserParameters']);
+    } catch (Exception $e) {
+        $tpl->setVariable('error_message', $e->getMessage());
+    }
+
+    $Result['path'] = array(
+        array(
+            'url' => 'webhook/list',
+            'text' => ezpI18n::tr('extension/ocwebhookserver', 'Webhooks')
+        ),
+        array(
+            'url' => false,
+            'text' => ezpI18n::tr('extension/ocwebhookserver', 'Logs')
+        )
+    );
+
+    $Result['content'] = $tpl->fetch('design:webhook/logs.tpl');
+
+
+}else{
+    return $Module->handleError( eZError::KERNEL_NOT_AVAILABLE, 'kernel' );
+}
