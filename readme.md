@@ -1,11 +1,11 @@
-#OpenContent Webhook Server
+# OpenContent Webhook Server
 
 A webhook is a way to provide information to another app about a particular event. 
 The way the two apps communicate is with a simple HTTP request.
 
 This eZPublish legacy extension allows you to configure and send webhooks easily.
 
-###Installation
+### Installation
 
  - Require package `composer require opencontent/ocwebhookserver-ls`
  - Enable extension in site.ini
@@ -14,11 +14,11 @@ This eZPublish legacy extension allows you to configure and send webhooks easily
  - Run the worker `php extension/ocwebhookserver/bin/php/worker.php`
  
  
-###Default trigger
+### Default trigger
 A post publish trigger is available: 
 to activate it, you need to configure the workflow 'Post publish webhook' in content/after trigger
 
-###Create new trigger
+### Create new trigger
 To add your own trigger: 
  - create a `OCWebHookTriggerInterface` implementation 
  - configure it in `webhook.ini [TriggersSettings]TriggerList`
@@ -32,7 +32,7 @@ OCWebHookEmitter::emit(
 ```
 see for example *eventtypes/event/workflowwebhook/workflowwebhooktype.php*
 
-###Todo
+### Todo
  - trigger filter configurations
  - payload configurations 
  - worker evolutions
