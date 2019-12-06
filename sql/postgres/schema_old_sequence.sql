@@ -1,4 +1,4 @@
-CREATE SEQUENCE ocwebhook_id_seq
+CREATE SEQUENCE ocwebhook_s
     START 1
     INCREMENT 1
     MAXVALUE 9223372036854775807
@@ -7,7 +7,7 @@ CREATE SEQUENCE ocwebhook_id_seq
 
 
 CREATE TABLE ocwebhook (
-   id integer DEFAULT nextval('ocwebhook_id_seq'::text) NOT NULL,
+   id integer DEFAULT nextval('ocwebhook_s'::text) NOT NULL,
    name VARCHAR(255) NOT NULL,
    url VARCHAR(255) NOT NULL,
    enabled integer not null default 0,
@@ -32,7 +32,7 @@ ALTER TABLE ONLY ocwebhook_trigger_link ADD CONSTRAINT ocwebhook_trigger_link_pk
 CREATE INDEX ocwebhook_trigger_link_wtid ON ocwebhook_trigger_link USING btree (webhook_id, trigger_identifier);
 CREATE INDEX ocwebhook_trigger_link_tid ON ocwebhook_trigger_link USING btree (trigger_identifier);
 
-CREATE SEQUENCE ocwebhook_job_id_seq
+CREATE SEQUENCE ocwebhook_job_s
   START 1
   INCREMENT 1
   MAXVALUE 9223372036854775807
@@ -41,7 +41,7 @@ CREATE SEQUENCE ocwebhook_job_id_seq
 
 
 CREATE TABLE ocwebhook_job (
-   id integer DEFAULT nextval('ocwebhook_job_id_seq'::text) NOT NULL,
+   id integer DEFAULT nextval('ocwebhook_job_s'::text) NOT NULL,
    execution_status integer DEFAULT 0 NOT NULL,
    webhook_id integer DEFAULT 0 NOT NULL,
    trigger_identifier VARCHAR(255) NOT NULL,

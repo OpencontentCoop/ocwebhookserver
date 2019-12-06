@@ -9,7 +9,7 @@ class OCWebHookEmitter
      */
     public static function emit($triggerName, $payload, $queueHandlerIdentifier)
     {
-        $trigger = OCWebhookTriggerRegistry::registeredTrigger($triggerName);
+        $trigger = OCWebHookTriggerRegistry::registeredTrigger($triggerName);
         if ($trigger instanceof OCWebHookTriggerInterface) {
             $webHooks = OCWebHook::fetchEnabledListByTrigger($trigger->getIdentifier());
             foreach ($webHooks as $index => $webHook) {

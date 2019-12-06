@@ -58,6 +58,7 @@
                         <br /><small>{$trigger.description|wash()|autolink()}</small>
                     </label>
                 </div>
+                {delimiter modulo=2}</div><div class="row">{/delimiter}
             {/foreach}
             </div>
         </div>

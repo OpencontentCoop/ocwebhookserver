@@ -55,7 +55,7 @@ if ($webHook instanceof OCWebHook) {
         $webHookTriggers[] = $trigger['identifier']; //@todo show filters
     }
     $tpl->setVariable('webhook_triggers', $webHookTriggers);
-    $tpl->setVariable('triggers', OCWebhookTriggerRegistry::registeredTriggersAsArray());
+    $tpl->setVariable('triggers', OCWebHookTriggerRegistry::registeredTriggersAsArray());
 
     $Result['path'] = array(
         array(

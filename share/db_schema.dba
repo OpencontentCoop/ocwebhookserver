@@ -1,0 +1,249 @@
+<?php
+// This array contains the database schema
+$schema = array (
+  'ocwebhook' =>
+  array (
+    'name' => 'ocwebhook',
+    'fields' =>
+    array (
+      'content_type' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'default' => 'application/json',
+      ),
+      'created_at' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'enabled' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+      'headers' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'id' =>
+      array (
+        'type' => 'auto_increment',
+        'default' => false,
+      ),
+      'method' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'default' => 'post',
+      ),
+      'name' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'not_null' => '1',
+        'default' => '',
+      ),
+      'payload_params' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'secret' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'url' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'not_null' => '1',
+        'default' => '',
+      ),
+    ),
+    'indexes' =>
+    array (
+      'PRIMARY' =>
+      array (
+        'type' => 'primary',
+        'fields' =>
+        array (
+          0 => 'id',
+        ),
+      ),
+      'ocwebhook_identifier' =>
+      array (
+        'type' => 'unique',
+        'fields' =>
+        array (
+          0 => 'name',
+          1 => 'url',
+        ),
+      ),
+      'ocwebhook_name' =>
+      array (
+        'type' => 'non-unique',
+        'fields' =>
+        array (
+          0 => 'name',
+        ),
+      ),
+    ),
+  ),
+  'ocwebhook_job' =>
+  array (
+    'name' => 'ocwebhook_job',
+    'fields' =>
+    array (
+      'created_at' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'executed_at' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'execution_status' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+      'hostname' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'id' =>
+      array (
+        'type' => 'auto_increment',
+        'default' => false,
+      ),
+      'payload' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'pid' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'response_headers' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'response_status' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'trigger_identifier' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'not_null' => '1',
+        'default' => '',
+      ),
+      'webhook_id' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+    ),
+    'indexes' =>
+    array (
+      'PRIMARY' =>
+      array (
+        'type' => 'primary',
+        'fields' =>
+        array (
+          0 => 'id',
+        ),
+      ),
+      'ocwebhook_job_status' =>
+      array (
+        'type' => 'non-unique',
+        'fields' =>
+        array (
+          0 => 'execution_status',
+        ),
+      ),
+    ),
+  ),
+  'ocwebhook_trigger_link' =>
+  array (
+    'name' => 'ocwebhook_trigger_link',
+    'fields' =>
+    array (
+      'filters' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'trigger_identifier' =>
+      array (
+        'length' => 255,
+        'type' => 'varchar',
+        'not_null' => '1',
+        'default' => '',
+      ),
+      'webhook_id' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+    ),
+    'indexes' =>
+    array (
+      'PRIMARY' =>
+      array (
+        'type' => 'primary',
+        'fields' =>
+        array (
+          0 => 'webhook_id',
+          1 => 'trigger_identifier',
+        ),
+      ),
+      'ocwebhook_trigger_link_tid' =>
+      array (
+        'type' => 'non-unique',
+        'fields' =>
+        array (
+          0 => 'trigger_identifier',
+        ),
+      ),
+      'ocwebhook_trigger_link_wtid' =>
+      array (
+        'type' => 'non-unique',
+        'fields' =>
+        array (
+          0 => 'webhook_id',
+          1 => 'trigger_identifier',
+        ),
+      ),
+    ),
+  ),
+  '_info' =>
+  array (
+    'format' => 'generic',
+  ),
+);
+
+?>

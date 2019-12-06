@@ -132,7 +132,7 @@ class OCWebHook extends eZPersistentObject
             $triggers = $db->arrayQuery("SELECT trigger_identifier as identifier, filters FROM ocwebhook_trigger_link WHERE webhook_id = " . (int)$this->attribute('id'));
             $this->triggers = [];
             foreach ($triggers as $trigger) {
-                $registeredTrigger = OCWebhookTriggerRegistry::registeredTrigger($trigger['identifier']);
+                $registeredTrigger = OCWebHookTriggerRegistry::registeredTrigger($trigger['identifier']);
                 if ($registeredTrigger instanceof OCWebHookTriggerInterface) {
                     $trigger['name'] = $registeredTrigger->getName();
                     $this->triggers[] = $trigger;

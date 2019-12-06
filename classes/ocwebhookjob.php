@@ -99,7 +99,7 @@ class OCWebHookJob extends eZPersistentObject
 
     public function getTrigger()
     {
-        $trigger = OCWebhookTriggerRegistry::registeredTrigger($this->attribute('trigger_identifier'));
+        $trigger = OCWebHookTriggerRegistry::registeredTrigger($this->attribute('trigger_identifier'));
         if ($trigger){
             return [
                 'name' => $trigger->getName(),

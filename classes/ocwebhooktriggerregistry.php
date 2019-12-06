@@ -1,6 +1,6 @@
 <?php
 
-class OCWebhookTriggerRegistry
+class OCWebHookTriggerRegistry
 {
     private static $loaded = false;
 
@@ -12,10 +12,23 @@ class OCWebhookTriggerRegistry
             self::$triggers = [];
 
             $webhookINI = eZINI::instance('webhook.ini');
-            $triggerList = $webhookINI->variable('TriggersSettings', 'TriggerList');
 
-            foreach ($triggerList as $triggerClassName) {
-                OCWebhookTriggerRegistry::registerTrigger(new $triggerClassName());
+            if ($webhookINI->hasVariable('TriggersSettings', 'TriggerList')) {
+                $triggerList = $webhookINI->variable('TriggersSettings', 'TriggerList');
+                foreach ($triggerList as $triggerClassName) {
+                    OCWebHookTriggerRegistry::registerTrigger(new $triggerClassName());
+                }
+            }
+
+            if ($webhookINI->hasVariable('TriggersSettings', 'TriggerFactoryList')) {
+                $triggerFactoryList = $webhookINI->variable('TriggersSettings', 'TriggerFactoryList');
+                foreach ($triggerFactoryList as $triggerFactoryClass) {
+                    /** @var OCWebHookTriggerFactoryInterface $triggerFactory */
+                    $triggerFactory = new $triggerFactoryClass();
+                    foreach ($triggerFactory->getTriggers() as $trigger) {
+                        OCWebHookTriggerRegistry::registerTrigger($trigger);
+                    }
+                }
             }
         }
         self::$loaded = true;

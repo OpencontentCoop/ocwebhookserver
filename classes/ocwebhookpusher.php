@@ -30,7 +30,7 @@ class OCWebHookPusher
             $pid = getmypid();
 
             // simple lock system: update execution_status in running only if yet pending
-            $query = "UPDATE public.ocwebhook_job 
+            $query = "UPDATE ocwebhook_job 
                       SET execution_status = $runningStatus,
                           hostname = '$hostname',
                           pid = '$pid'
