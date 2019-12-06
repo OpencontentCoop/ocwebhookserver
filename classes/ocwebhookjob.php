@@ -134,7 +134,7 @@ class OCWebHookJob extends eZPersistentObject
     public static function fetchListByWebHookId($webHookId, $offset = 0, $limit = 0, $status = null)
     {
         $conds = ['webhook_id' => (int)$webHookId];
-        if ($status){
+        if ($status !== null){
             $conds['execution_status'] = (int) $status;
         }
 
@@ -144,7 +144,7 @@ class OCWebHookJob extends eZPersistentObject
     public static function fetchCountByWebHookId($webHookId, $status = null)
     {
         $conds = ['webhook_id' => (int)$webHookId];
-        if ($status){
+        if ($status !== null){
             $conds['execution_status'] = (int) $status;
         }
 

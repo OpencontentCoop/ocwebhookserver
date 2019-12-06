@@ -45,8 +45,8 @@
                             {/switch}
 
                             <strong style="margin-left: 20px">{"Status"|i18n( 'extension/ocwebhookserver' )}</strong>
-                            {if $status}
-                                <a href="{concat('webhook/logs/',$webhook.id|ezurl(no))}">{"All"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {if $status|ge(0)}
+                                <a href="{concat('webhook/logs/',$webhook.id)|ezurl(no)}">{"All"|i18n( 'extension/ocwebhookserver' )}</a>
                             {/if}
                             {if $status|eq(0)}
                                 <span class="current">{"Pending"|i18n( 'extension/ocwebhookserver' )}</span>

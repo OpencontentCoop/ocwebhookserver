@@ -12,7 +12,13 @@
                 <div class="box-mr">
                     <div class="box-tl">
                         <div class="box-tr">
-                            <h1 class="context-title">{'Edit webhook'|i18n( 'extension/ocwebhookserver' )}</h1>
+                            <h1 class="context-title">
+                                {if $id|eq('new')}
+                                    {'Create webhook'|i18n( 'extension/ocwebhookserver' )}
+                                {else}
+                                    {'Edit webhook'|i18n( 'extension/ocwebhookserver' )}
+                                {/if}
+                            </h1>
                             <div class="header-mainline"/>
                         </div>
                     </div>

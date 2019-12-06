@@ -11,12 +11,13 @@ if ($webHook instanceof OCWebHook) {
 
     try {
         $offset = isset($Params['UserParameters']['offset']) ? (int)$Params['UserParameters']['offset'] : 0; // Offset for pagination
-        $status = isset($Params['UserParameters']['status']) ? (int)$Params['UserParameters']['status'] : 0; // Offset for pagination
+        $status = isset($Params['UserParameters']['status']) ? (int)$Params['UserParameters']['status'] : null; // Offset for pagination
         $limit = eZPreferences::value('webhooks_limit');
         $limit = $limit ? $limit : 10; // Default limit is 10
         $jobs = OCWebHookJob::fetchListByWebHookId($webHook->attribute('id'), $offset, $limit, $status);
         $jobCount = OCWebHookJob::fetchCountByWebHookId($webHook->attribute('id'), $status);
 
+        $status = $status === null ? -1 : $status;
         $tpl->setVariable('webhook', $webHook);
         $tpl->setVariable('status', $status);
         $tpl->setVariable('jobs', $jobs);
