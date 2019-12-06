@@ -50,9 +50,9 @@
                     <td>
                         {foreach $triggers as $trigger}
                             <label>
-                                <input type="checkbox" name="triggers[{$trigger.identifier}]" value="1" {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
+                                <input {if $trigger.can_enabled|not}disabled="disabled"{/if} type="checkbox" name="triggers[{$trigger.identifier}]" value="1" {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
                                 {$trigger.name|wash()}
-                                <small>{$trigger.description|wash()}</small>
+                                <small>{$trigger.description|wash()|autolink()}</small>
                             </label>
                         {/foreach}
                     </td>

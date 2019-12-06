@@ -18,6 +18,11 @@ interface OCWebHookTriggerInterface
     public function getDescription();
 
     /**
+     * @return bool
+     */
+    public function canBeEnabled();
+
+    /**
      * @return string
      */
     public function useFilter();

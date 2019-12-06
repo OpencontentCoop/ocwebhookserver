@@ -43,4 +43,9 @@ class OCWebHookQueue
             $this->pusher->push($this->jobs);
         }
     }
+
+    public static function defaultHandler()
+    {
+        return self::HANDLER_SCHEDULED;
+    }
 }

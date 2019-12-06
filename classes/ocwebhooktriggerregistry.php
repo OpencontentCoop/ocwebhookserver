@@ -42,6 +42,7 @@ class OCWebhookTriggerRegistry
                 'name' => $trigger->getName(),
                 'identifier' => $trigger->getIdentifier(),
                 'description' => $trigger->getDescription(),
+                'can_enabled' => $trigger->canBeEnabled(),
             ];
         }
 

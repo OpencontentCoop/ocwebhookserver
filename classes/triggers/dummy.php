@@ -19,6 +19,11 @@ class DummyTrigger implements OCWebHookTriggerInterface
         return 'Dummy event never triggerd only for test';
     }
 
+    public function canBeEnabled()
+    {
+        return true;
+    }
+
     public function useFilter()
     {
         return false;
