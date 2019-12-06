@@ -68,6 +68,18 @@ class OCWebHookJob extends eZPersistentObject
                     'default' => null,
                     'required' => true
                 ],
+                'hostname' => [
+                    'name' => 'hostname',
+                    'datatype' => 'string',
+                    'default' => null,
+                    'required' => false
+                ],
+                'pid' => [
+                    'name' => 'pid',
+                    'datatype' => 'string',
+                    'default' => null,
+                    'required' => false
+                ],
             ],
             'keys' => ['id'],
             'increment_key' => 'id',
@@ -113,20 +125,51 @@ class OCWebHookJob extends eZPersistentObject
         else
             $aLimit = array('offset' => $offset, 'length' => $limit);
 
-        $sort = array('created_at' => 'desc');
+        $sort = array('id' => 'desc');
         $aImports = self::fetchObjectList(self::definition(), null, $conds, $sort, $aLimit);
 
         return $aImports;
     }
 
-    public static function fetchListByWebHookId($webHookId, $offset = 0, $limit = 0)
+    public static function fetchListByWebHookId($webHookId, $offset = 0, $limit = 0, $status = null)
     {
-        return self::fetchList($offset, $limit, ['webhook_id' => (int)$webHookId]);
+        $conds = ['webhook_id' => (int)$webHookId];
+        if ($status){
+            $conds['execution_status'] = (int) $status;
+        }
+
+        return self::fetchList($offset, $limit, $conds);
+    }
+
+    public static function fetchCountByWebHookId($webHookId, $status = null)
+    {
+        $conds = ['webhook_id' => (int)$webHookId];
+        if ($status){
+            $conds['execution_status'] = (int) $status;
+        }
+
+        return self::count(OCWebHookJob::definition(), $conds);
+    }
+
+    public static function fetchCountByExecutionStatus($status)
+    {
+        return OCWebHookJob::count(OCWebHookJob::definition(), ['execution_status' => (int)$status]);
     }
 
     public static function fetchListByExecutionStatus($status, $offset = 0, $limit = 0)
     {
         return self::fetchList($offset, $limit, ['execution_status' => (int)$status]);
+    }
+
+
+    public static function fetchTodoCount()
+    {
+        return OCWebHookJob::fetchCountByExecutionStatus(OCWebHookJob::STATUS_PENDING);
+    }
+
+    public static function fetchTodoList($offset, $limit)
+    {
+        return OCWebHookJob::fetchListByExecutionStatus(OCWebHookJob::STATUS_PENDING, $offset, $limit);
     }
 
     /**
@@ -138,5 +181,13 @@ class OCWebHookJob extends eZPersistentObject
         $webhook = self::fetchObject(self::definition(), null, array('id' => (int)$id));
 
         return $webhook;
+    }
+
+    public static function removeUntilDate($timestamp)
+    {
+        $db = eZDB::instance();
+        $db->begin();
+        $db->query("DELETE FROM ocwebhook_job WHERE created_at <= $timestamp");
+        $db->commit();
     }
 }

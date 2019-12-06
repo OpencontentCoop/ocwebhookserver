@@ -49,7 +49,9 @@ CREATE TABLE ocwebhook_job (
    created_at integer,
    executed_at integer,
    response_headers TEXT,
-   response_status integer DEFAULT NULL
+   response_status integer DEFAULT NULL,
+   hostname TEXT,
+   pid TEXT
 );
 ALTER TABLE ONLY ocwebhook_job ADD CONSTRAINT ocwebhook_job_pkey PRIMARY KEY (id);
 CREATE INDEX ocwebhook_job_status ON ocwebhook_job USING btree (execution_status);

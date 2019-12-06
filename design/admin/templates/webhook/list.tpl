@@ -42,6 +42,8 @@
                             {/case}
 
                             {/switch}
+
+                            <strong style="margin-left: 20px"><a class="button" href="{'webhook/edit/new'|ezurl(no)}">{"Add new webhook"|i18n( 'extension/ocwebhookserver' )}</a></strong>
                         </p>
                     </div>
                 </div>
@@ -51,6 +53,7 @@
                     {"No webhooks"|i18n( 'extension/ocwebhookserver' )}
                 {else}
                     <form method="post" action="{$uri|ezurl(no)}">
+
                         <table class="list" cellspacing="0">
                             <thead>
                             <tr>
@@ -76,11 +79,11 @@
                                     <td>{$webhook.url|wash()}</td>
                                     <td>{$webhook.secret|wash()}</td>
                                     <td>
-                                        {foreach $webhook.triggers as $trigger}{$trigger['name']|wash()}{delimiter}, {/delimiter}{/foreach}
+                                        {foreach $webhook.triggers as $trigger}<span style="white-space: nowrap">{$trigger['name']|wash()}</span>{delimiter}<br />{/delimiter}{/foreach}
                                     </td>
                                     <td>
                                         {foreach $webhook.headers_array as $header}
-                                            {$header|wash()}<br />
+                                            {$header|wash()}{delimiter}<br />{/delimiter}
                                         {/foreach}
                                     </td>
                                     <td>

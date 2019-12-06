@@ -9,7 +9,7 @@ $currentURI = '/' . $Module->currentModule() . '/' . $Module->currentView();
 
 if ($http->hasPostVariable('EnableWebHook')) {
     $webHook = OCWebHook::fetch((int)$http->postVariable('EnableWebHook'));
-    if ($webHook instanceof OCWebHook){
+    if ($webHook instanceof OCWebHook) {
         $webHook->setAttribute('enabled', 1);
         $webHook->store();
         $Module->redirectTo($currentURI);
@@ -19,7 +19,7 @@ if ($http->hasPostVariable('EnableWebHook')) {
 
 if ($http->hasPostVariable('DisableWebHook')) {
     $webHook = OCWebHook::fetch((int)$http->postVariable('DisableWebHook'));
-    if ($webHook instanceof OCWebHook){
+    if ($webHook instanceof OCWebHook) {
         $webHook->setAttribute('enabled', 0);
         $webHook->store();
         $Module->redirectTo($currentURI);
@@ -29,11 +29,20 @@ if ($http->hasPostVariable('DisableWebHook')) {
 
 if ($http->hasPostVariable('TestWebHook')) {
     $webHook = OCWebHook::fetch((int)$http->postVariable('TestWebHook'));
-    if ($webHook instanceof OCWebHook && $webHook->isEnabled()){
-        $payload = ['test webhook'];
+    if ($webHook instanceof OCWebHook && $webHook->isEnabled()) {
         $triggers = $webHook->getTriggers();
         $jobs = [];
-        foreach ($triggers as $trigger){
+        foreach ($triggers as $trigger) {
+
+            $payload = [
+                'test_webhook' => [
+                    'id' => $webHook->attribute('id'),
+                    'name' => $webHook->attribute('name'),
+                    'endpoint' => $webHook->attribute('url'),
+                    'trigger' => $trigger['identifier']
+                ]
+            ];
+
             $job = new OCWebHookJob([
                 'webhook_id' => $webHook->attribute('id'),
                 'trigger_identifier' => $trigger['identifier'],

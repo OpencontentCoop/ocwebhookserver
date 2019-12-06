@@ -22,6 +22,7 @@
                 <div class="block">
                     <div class="left">
                         <p>
+                            <strong>{"Pagination"|i18n( 'extension/ocwebhookserver' )}</strong>
                             {switch match=$limit}
                             {case match=25}
                                 <a href={'/user/preferences/set/webhooks_limit/10/'|ezurl} title="{'Show 10 items per page.'|i18n( 'design/admin/node/view/full' )}">10</a>
@@ -42,6 +43,31 @@
                             {/case}
 
                             {/switch}
+
+                            <strong style="margin-left: 20px">{"Status"|i18n( 'extension/ocwebhookserver' )}</strong>
+                            {if $status}
+                                <a href="{concat('webhook/logs/',$webhook.id|ezurl(no))}">{"All"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
+                            {if $status|eq(0)}
+                                <span class="current">{"Pending"|i18n( 'extension/ocwebhookserver' )}</span>
+                            {else}
+                                <a href="{concat('webhook/logs/',$webhook.id, '/(status)/0')|ezurl(no)}">{"Pending"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
+                            {if $status|eq(1)}
+                                <span class="current">{"Running"|i18n( 'extension/ocwebhookserver' )}</span>
+                            {else}
+                                <a href="{concat('webhook/logs/',$webhook.id, '/(status)/1')|ezurl(no)}">{"Running"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
+                            {if $status|eq(2)}
+                                <span class="current">{"Done"|i18n( 'extension/ocwebhookserver' )}</span>
+                            {else}
+                                <a href="{concat('webhook/logs/',$webhook.id, '/(status)/2')|ezurl(no)}">{"Done"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
+                            {if $status|eq(3)}
+                                <span class="current">{"Failed"|i18n( 'extension/ocwebhookserver' )}</span>
+                            {else}
+                                <a href="{concat('webhook/logs/',$webhook.id, '/(status)/3')|ezurl(no)}">{"Failed"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
                         </p>
                     </div>
                 </div>
@@ -56,12 +82,13 @@
                             <tr>
                                 <th width="1">{"ID"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Status"|i18n( 'extension/ocwebhookserver' )}</th>
+                                <th>{"Response code"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Trigger"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Payload"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Created at"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Executed at"|i18n( 'extension/ocwebhookserver' )}</th>
-                                <th>{"Response code"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Response headers/Error message"|i18n( 'extension/ocwebhookserver' )}</th>
+                                <th>{"Executor"|i18n( 'extension/ocwebhookserver' )}</th>
                             </tr>
                             </thead>
 
@@ -80,12 +107,19 @@
                                             {"Failed"|i18n( 'extension/ocwebhookserver' )}
                                         {/if}
                                     </td>
+                                    <td>{$job.response_status|wash()}</td>
                                     <td>{$job.trigger.name|wash()}</td>
                                     <td><pre><code class="json">{$job.payload|wash()}</code></pre></td>
-                                    <td>{$job.created_at|l10n( shortdatetime )}</td>
-                                    <td>{if $job.executed_at|int()|gt(0)}{$job.executed_at|l10n( shortdatetime )}{/if}</td>
-                                    <td>{$job.response_status|wash()}</td>
-                                    <td><pre><code class="json">{$job.response_headers|wash()}</code></pre></td>
+                                    <td>{$job.created_at|l10n( datetime )}</td>
+                                    <td>{if $job.executed_at|int()|gt(0)}{$job.executed_at|l10n( datetime )}{/if}</td>
+                                    <td>
+                                        <pre><code class="json">{$job.response_headers|wash()}</code></pre>
+                                    </td>
+                                    <td>
+                                        {if $job.hostname}
+                                            {$job.hostname|wash()} ({$job.pid|wash()})
+                                        {/if}
+                                    </td>
                                 </tr>
                             {/foreach}
                             </tbody>
@@ -134,8 +168,13 @@
 
 
         $('code.json').each(function () {
-            var tmpData = JSON.parse($(this).text());
-            $(this).html(library.json.prettyPrint(tmpData));
+            try {
+                var tmpData = JSON.parse($(this).text());
+                $(this).html(library.json.prettyPrint(tmpData));
+            } catch (e) {
+                $(this).parent().css({'white-space':'normal'});
+                console.log(e);
+            }
         });
     });
 </script>

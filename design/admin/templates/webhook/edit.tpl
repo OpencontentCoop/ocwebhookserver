@@ -29,11 +29,11 @@
             <table class="list">
                 <tr>
                     <td width="1"><label for="name">{"Name"|i18n( 'extension/ocwebhookserver' )}</label></td>
-                    <td><input class="box" id="name" type="text" name="name" value="{$webhook.name|wash()}" /></td>
+                    <td><input required="required" class="box" id="name" type="text" name="name" value="{$webhook.name|wash()}" /></td>
                 </tr>
                 <tr>
                     <td width="1"><label for="url">{"Endpoint"|i18n( 'extension/ocwebhookserver' )}</label></td>
-                    <td><input class="box" id="url" type="text" name="url" value="{$webhook.url|wash()}" /></td>
+                    <td><input required="required" class="box" id="url" type="text" name="url" value="{$webhook.url|wash()}" /></td>
                 </tr>
                 <tr>
                     <td width="1"><label for="secret">{"Secret"|i18n( 'extension/ocwebhookserver' )}</label></td>
@@ -44,7 +44,7 @@
                     <td>
                         {foreach $triggers as $trigger}
                             <label>
-                                <input type="checkbox" value="triggers[{$trigger.identifier}]" {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
+                                <input type="checkbox" name="triggers[{$trigger.identifier}]" value="1" {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
                                 {$trigger.name|wash()}
                                 <small>{$trigger.description|wash()}</small>
                             </label>
@@ -54,6 +54,12 @@
                 <tr>
                     <td width="1"><label for="headers">{"Headers"|i18n( 'extension/ocwebhookserver' )}</label></td>
                     <td><textarea class="box" id="secret" name="headers">{$webhook.headers_array|implode("\n")}</textarea></td>
+                </tr>
+                <tr>
+                    <td width="1"><label for="enabled">{"Enable"|i18n( 'extension/ocwebhookserver' )}</label></td>
+                    <td>
+                        <input type="checkbox" name="enabled" value="1" {if $webhook.enabled|eq(1)}checked="checked"{/if} />
+                    </td>
                 </tr>
             </table>
         </div>
