@@ -23,7 +23,7 @@ interface OCWebHookTriggerInterface
     public function canBeEnabled();
 
     /**
-     * @return string
+     * @return string|bool JSON Schema as string or false
      */
     public function useFilter();
 

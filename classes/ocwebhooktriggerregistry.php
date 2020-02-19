@@ -4,6 +4,9 @@ class OCWebHookTriggerRegistry
 {
     private static $loaded = false;
 
+    /**
+     * @var OCWebHookTriggerInterface[]
+     */
     private static $triggers = [];
 
     private static function loadAndRegisterTriggers()
@@ -56,6 +59,7 @@ class OCWebHookTriggerRegistry
                 'identifier' => $trigger->getIdentifier(),
                 'description' => $trigger->getDescription(),
                 'can_enabled' => $trigger->canBeEnabled(),
+                'use_filter' => $trigger->useFilter(),
             ];
         }
 

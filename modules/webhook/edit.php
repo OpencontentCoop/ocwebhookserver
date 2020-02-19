@@ -35,10 +35,24 @@ if ($webHook instanceof OCWebHook) {
         $webHook->setAttribute('headers', json_encode($headers));
         try {
             $webHook->store();
+            $triggers = [];
             if ($http->hasPostVariable('triggers')) {
-                $triggers = $http->postVariable('triggers');
-                $webHook->setTriggers(array_keys($triggers));
+                $triggersEnabled = $http->postVariable('triggers');
+                foreach (array_keys($triggersEnabled) as $triggerEnabled){
+                    $triggers[$triggerEnabled] = [
+                        'identifier' => $triggerEnabled
+                    ];
+                }
             }
+            if ($http->hasPostVariable('trigger_filters')) {
+                $triggerFilters = $http->postVariable('trigger_filters');
+                foreach ($triggerFilters as $identifier => $filters){
+                    if (isset($triggers[$identifier])){
+                        $triggers[$identifier]['filters'] = $filters;
+                    }
+                }
+            }
+            $webHook->setTriggers($triggers);
 
             $Module->redirectTo('/webhook/list');
             return;
@@ -52,7 +66,7 @@ if ($webHook instanceof OCWebHook) {
     $tpl->setVariable('webhook', $webHook);
     $webHookTriggers = [];
     foreach ($webHook->getTriggers() as $trigger){
-        $webHookTriggers[] = $trigger['identifier']; //@todo show filters
+        $webHookTriggers[$trigger['identifier']] = $trigger;
     }
     $tpl->setVariable('webhook_triggers', $webHookTriggers);
     $tpl->setVariable('triggers', OCWebHookTriggerRegistry::registeredTriggersAsArray());

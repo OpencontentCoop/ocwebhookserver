@@ -53,10 +53,18 @@
                 <div class="col-md-6">
                     <label class="checkbox" style="font-weight: normal">
                         <input {if $trigger.can_enabled|not}disabled="disabled"{/if} type="checkbox" name="triggers[{$trigger.identifier}]" value="1"
-                               {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
+                               {if is_set($webhook_triggers[$trigger.identifier])}checked="checked"{/if} />
                         <strong>{$trigger.name|wash()}</strong>
                         <br /><small>{$trigger.description|wash()|autolink()}</small>
                     </label>
+                    {if $trigger.use_filter}
+                        {if and(is_set($webhook_triggers[$trigger.identifier]), $webhook_triggers[$trigger.identifier].filters|ne(''))}
+                            <a style="margin-left: 20px" href="#" data-schema='{$trigger.use_filter}' data-trigger="{$trigger.identifier}" class="btn btn-primary btn-xs">{"Edit filters"|i18n( 'extension/ocwebhookserver' )}</a>
+                        {else}
+                            <a style="margin-left: 20px" href="#" data-schema='{$trigger.use_filter}' data-trigger="{$trigger.identifier}" class="btn btn-default btn-xs">{"Set filters"|i18n( 'extension/ocwebhookserver' )}</a>
+                        {/if}
+                        <input type="hidden" data-filter_value="{$trigger.identifier}" value="{if is_set($webhook_triggers[$trigger.identifier])}{$webhook_triggers[$trigger.identifier].filters|wash()}{/if}" name="trigger_filters[{$trigger.identifier}]" />
+                    {/if}
                 </div>
                 {delimiter modulo=2}</div><div class="row">{/delimiter}
             {/foreach}
@@ -88,3 +96,73 @@
     </div>
 
 </form>
+
+
+{ezscript_require(array(
+    'ezjsc::jquery',
+    'ezjsc::jqueryUI',
+    'moment-with-locales.min.js',
+    'handlebars.min.js',
+    'bootstrap-datetimepicker.min.js',
+    'alpaca.min.js'
+))}
+{ezcss_load(array(
+    'alpaca.min.css',
+    'bootstrap-datetimepicker.min.css'
+))}
+<div id="modal" class="modal fade">
+	<div class="modal-dialog modal-lg">
+		<div class="modal-content">
+			<div class="modal-body">
+				<div class="clearfix">
+					<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				</div>
+				<div id="filters-form" class="clearfix"></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+{literal}
+<script type="text/javascript">
+    $(document).ready(function () {
+        var modal = $('#modal');
+        $('[data-trigger]').on('click', function (e) {
+            modal.modal('show');
+            var self = $(this);
+            var trigger = self.data('trigger');
+            var input = $('[data-filter_value="'+trigger+'"]');
+
+            $("#filters-form").alpaca('destroy').alpaca($.extend(true, $(this).data('schema'),{
+                "data": input.val().length > 0 ? JSON.parse(input.val()) : null,
+                "options": {
+                    "form": {
+                        "buttons": {
+                            "submit": {
+                                "click": function() {
+                                    this.refreshValidationState(true);
+                                    if (this.isValid(true)) {
+                                        var value = this.getValue();
+                                        if ($.isEmptyObject(value)){
+                                            self.html('{/literal}{"Set filters"|i18n('extension/ocwebhookserver')}{literal}').addClass('btn-default').removeClass('btn-primary');
+                                            input.val('');
+                                        }else{
+                                            self.html('{/literal}{"Edit filters"|i18n('extension/ocwebhookserver')}{literal}').addClass('btn-primary').removeClass('btn-default');
+                                            input.val(JSON.stringify(value));
+                                        }
+                                        modal.modal('hide');
+                                    }
+                                },
+                                'id': "save-button",
+                                "value": "Save",
+                                "styles": "btn btn-md btn-success pull-right"
+                            }
+                        }
+                    }
+                }
+            }));
+            e.preventDefault();
+        });
+    });
+</script>
+{/literal}

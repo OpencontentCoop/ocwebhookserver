@@ -49,11 +49,18 @@
                     <td width="1">{"Triggers"|i18n( 'extension/ocwebhookserver' )}</td>
                     <td>
                         {foreach $triggers as $trigger}
-                            <label>
-                                <input {if $trigger.can_enabled|not}disabled="disabled"{/if} type="checkbox" name="triggers[{$trigger.identifier}]" value="1" {if $webhook_triggers|contains($trigger.identifier)}checked="checked"{/if} />
-                                {$trigger.name|wash()}
-                                <small>{$trigger.description|wash()|autolink()}</small>
-                            </label>
+                            <div style="margin-bottom: 10px">
+                                <label>
+                                    <input {if $trigger.can_enabled|not}disabled="disabled"{/if} type="checkbox" name="triggers[{$trigger.identifier}]" value="1" {if is_set($webhook_triggers[$trigger.identifier])}checked="checked"{/if} />
+                                    {$trigger.name|wash()}
+                                    <small>{$trigger.description|wash()|autolink()}</small>
+                                </label>
+                                {if $trigger.use_filter}
+                                    <label for="trigger_filter_{$trigger.identifier}">Trigger filters:
+                                        <input style="width: 50%" id="trigger_filter_{$trigger.identifier}" type="text" value="{if is_set($webhook_triggers[$trigger.identifier])}{$webhook_triggers[$trigger.identifier].filters|wash()}{/if}" name="trigger_filters[{$trigger.identifier}]" />
+                                    </label>
+                                {/if}
+                            </div>
                         {/foreach}
                     </td>
                 </tr>
