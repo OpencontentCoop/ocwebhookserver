@@ -1,0 +1,157 @@
+{
+	"SerializedNameList": "a:1:{s:6:\"ita-IT\";s:11:\"Shared link\";}",
+	"NameList": {
+		"NameList": {
+			"ita-IT": "Shared link"
+		},
+		"DefaultLanguage": null
+	},
+	"DescriptionList": {
+		"NameList": {
+			"ita-IT": ""
+		},
+		"DefaultLanguage": null
+	},
+	"Identifier": "shared_link",
+	"ContentObjectName": "<name> ",
+	"Version": "0",
+	"VersionCount": 1,
+	"CreatorID": "14",
+	"ModifierID": "14",
+	"Created": "1587658343",
+	"Modified": "1587658426",
+	"InGroups": [
+		{
+			"ContentClassID": "20",
+			"ContentClassVersion": "0",
+			"GroupID": "6",
+			"GroupName": "Media"
+		}
+	],
+	"IsContainer": "0",
+	"CanInstantiateLanguages": null,
+	"LanguageMask": "3",
+	"SerializedDescriptionList": "a:1:{s:6:\"ita-IT\";s:0:\"\";}",
+	"URLAliasName": "",
+	"RemoteID": "9c76ea2fddd9be1d1ec26abcdacaf282",
+	"AlwaysAvailable": "0",
+	"InitialLanguageID": "2",
+	"SortField": "1",
+	"SortOrder": "1",
+	"DataMap": [
+		{
+			"name": {
+				"Content": null,
+				"DisplayInfo": null,
+				"ID": "355",
+				"Version": "0",
+				"ContentClassID": "20",
+				"Identifier": "name",
+				"SerializedNameList": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:4:\"Name\";}",
+				"NameList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": "Name"
+					},
+					"DefaultLanguage": null
+				},
+				"DescriptionList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": ""
+					},
+					"DefaultLanguage": null
+				},
+				"DataTypeString": "ezstring",
+				"Position": "1",
+				"IsSearchable": "1",
+				"IsRequired": "1",
+				"IsInformationCollector": "0",
+				"Module": null,
+				"SerializedDescriptionList": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:0:\"\";}",
+				"CanTranslate": "1",
+				"DataInt1": "255",
+				"DataInt2": "0",
+				"DataInt3": "0",
+				"DataInt4": "0",
+				"DataFloat1": "0",
+				"DataFloat2": "0",
+				"DataFloat3": "0",
+				"DataFloat4": "0",
+				"DataText1": "",
+				"DataText2": "",
+				"DataText3": "",
+				"DataText4": "",
+				"DataText5": "",
+				"SerializedDataText": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:0:\"\";}",
+				"Category": "",
+				"DataTextI18nList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": ""
+					},
+					"DefaultLanguage": null
+				}
+			},
+			"location": {
+				"Content": null,
+				"DisplayInfo": null,
+				"ID": "356",
+				"Version": "0",
+				"ContentClassID": "20",
+				"Identifier": "location",
+				"SerializedNameList": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:8:\"Location\";}",
+				"NameList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": "Location"
+					},
+					"DefaultLanguage": null
+				},
+				"DescriptionList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": ""
+					},
+					"DefaultLanguage": null
+				},
+				"DataTypeString": "ezurl",
+				"Position": "2",
+				"IsSearchable": "0",
+				"IsRequired": "1",
+				"IsInformationCollector": "0",
+				"Module": null,
+				"SerializedDescriptionList": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:0:\"\";}",
+				"CanTranslate": "1",
+				"DataInt1": "0",
+				"DataInt2": "0",
+				"DataInt3": "0",
+				"DataInt4": "0",
+				"DataFloat1": "0",
+				"DataFloat2": "0",
+				"DataFloat3": "0",
+				"DataFloat4": "0",
+				"DataText1": "",
+				"DataText2": "",
+				"DataText3": "",
+				"DataText4": "",
+				"DataText5": "",
+				"SerializedDataText": "a:3:{s:6:\"eng-GB\";s:0:\"\";s:16:\"always-available\";s:6:\"eng-GB\";s:6:\"ita-IT\";s:0:\"\";}",
+				"Category": "",
+				"DataTextI18nList": {
+					"NameList": {
+						"eng-GB": "",
+						"always-available": "eng-GB",
+						"ita-IT": ""
+					},
+					"DefaultLanguage": null
+				}
+			}
+		}
+	]
+}

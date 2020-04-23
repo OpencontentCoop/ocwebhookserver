@@ -25,7 +25,10 @@ class OCWebHookEndpointController extends OCOpenDataController2
             if (!$object instanceof eZContentObject){
                 throw new Exception("Error creating or updating object");
             }
-            $result->variables['result'] = (int)$object->attribute('id');
+            $result->variables['result'] = [
+                'id' => (int)$object->attribute('id'),
+                'version' => (int)$object->attribute('current_version'),
+            ];
         } catch (Exception $e) {
             $result = $this->doExceptionResult($e);
         }
@@ -53,6 +56,14 @@ class OCWebHookEndpointController extends OCOpenDataController2
 
         $localeAttributes = $errors = [];
         $currentObject = eZContentObject::fetchByRemoteID($remoteId);
+        if ($currentObject instanceof eZContentObject){
+            $currentModified = $currentObject->attribute('modified');
+            $payloadModified = date("U", strtotime($payload['metadata']['modified']));
+            if ($currentModified <= $payloadModified){
+                return $currentObject;
+            }
+        }
+        
         $fakePublicationProcess = new \Opencontent\Opendata\Api\PublicationProcess([]);
 
         /** @var eZContentClassAttribute $classAttribute */
@@ -73,6 +84,10 @@ class OCWebHookEndpointController extends OCOpenDataController2
                             }
                             $localeAttributes[$language][$identifier] = implode('-', $relations);
                         } else {
+
+                            if ($classAttribute->attribute('data_type_string') == eZImageType::DATA_TYPE_STRING){
+                                $attributeData['url'] = $baseUrl . $attributeData['url'];
+                            }
 
                             $converter = AttributeConverterLoader::load(
                                 $classIdentifier, $identifier, $classAttribute->attribute('data_type_string')
@@ -127,13 +142,19 @@ class OCWebHookEndpointController extends OCOpenDataController2
         $linkRemoteId = 'link-to-' . $item['remoteId'];
         $linkObject = eZContentObject::fetchByRemoteID($linkRemoteId);
         if ($linkObject instanceof eZContentObject) {
+            eZContentFunctions::updateAndPublishObject($linkObject, [
+                'language' => $language,
+                'attributes' => [
+                    'name' => $item['name'][$language],
+                    'location' => $baseUrl . '/content/view/full/' . $item['mainNodeId']
+                ]
+            ]);
             return $linkObject->attribute('id');
         }
 
         $classIdentifier = $item['classIdentifier'];
 
         if ($classIdentifier == 'image') {
-
             $client = new \Opencontent\Opendata\Rest\Client\HttpClient($baseUrl);
             $remoteData = $client->read($remoteId);
             $remoteData['metadata']['baseUrl'] = $baseUrl;
@@ -141,11 +162,16 @@ class OCWebHookEndpointController extends OCOpenDataController2
             if ($object instanceof eZContentObject) {
                 return $object->attribute('id');
             }
-
         } else {
+
+            $linkClass = eZContentClass::fetchByIdentifier('shared_link');
+            if (!$linkClass instanceof eZContentClass){
+                $this->installLinkClass();
+            }
+
             $link = eZContentFunctions::createAndPublishObject([
                 'parent_node_id' => $this->getLinksNodeId(),
-                'class_identifier' => 'link',
+                'class_identifier' => 'shared_link',
                 'remote_id' => $linkRemoteId,
                 'attributes' => [
                     'name' => $item['name'][$language],
@@ -184,5 +210,17 @@ class OCWebHookEndpointController extends OCOpenDataController2
             throw new Exception('Failed creating Links node');
         }
         return $contentObject->attribute('main_node');
+    }
+
+    private function installLinkClass()
+    {        
+        $classTools = new OCClassTools('shared_link', true, [], eZSys::rootDir() . '/extension/ocwebhookserver/share/shared_link.json');
+        $classTools->sync();
+
+        $class = eZContentClass::fetchByIdentifier('shared_link');
+        if ($class instanceof eZContentClass){
+            $extraData = json_decode(file_get_contents(eZSys::rootDir() . '/extension/ocwebhookserver/share/shared_link_extra.json'));
+            OCClassExtraParametersManager::instance($class)->sync($extraData);   
+        }
     }
 }
