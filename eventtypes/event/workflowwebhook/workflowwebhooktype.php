@@ -34,6 +34,7 @@ class WorkflowWebHookType extends eZWorkflowEventType
                     $request = $parser->createRequest();
                     $currentEnvironment->__set('request', $request);
                     $payload = $currentEnvironment->filterContent($content);
+                    $payload['metadata']['baseUrl'] = eZSys::serverURL();
 
                     OCWebHookEmitter::emit(
                         PostPublishWebHookTrigger::IDENTIFIER,
