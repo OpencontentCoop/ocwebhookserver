@@ -21,15 +21,23 @@ class OCWebHookEndpointController extends OCOpenDataController2
         try {
             $result = new ezpRestMvcResult();
             $payload = (array)$this->getPayload();
-            $object = $this->createUpdate($payload, $this->request->variables['ParentNodeId']);
-            if (!$object instanceof eZContentObject){
-                throw new Exception("Error creating or updating object");
+
+            if (isset($payload['test_webhook'])){
+                $result->variables['result'] = 'ok';
+                header('X-Webhook-Endpoint-Result-Test: ' . $payload['test_webhook']['id']);
+            }else{
+                $object = $this->createUpdate($payload, $this->request->variables['ParentNodeId']);
+                if (!$object instanceof eZContentObject){
+                    throw new Exception("Error creating or updating object");
+                }
+                $result->variables = [
+                    'id' => (int)$object->attribute('id'),
+                    'version' => (int)$object->attribute('current_version'),
+                ];
+                header('X-Webhook-Endpoint-Result-Id: ' . $object->attribute('id') . '-'  . $object->attribute('current_version'));
             }
-            $result->variables['result'] = [
-                'id' => (int)$object->attribute('id'),
-                'version' => (int)$object->attribute('current_version'),
-            ];
         } catch (Exception $e) {
+            header('X-Webhook-Endpoint-Error: ' . $e->getMessage());
             $result = $this->doExceptionResult($e);
         }
 
@@ -63,7 +71,7 @@ class OCWebHookEndpointController extends OCOpenDataController2
                 return $currentObject;
             }
         }
-        
+
         $fakePublicationProcess = new \Opencontent\Opendata\Api\PublicationProcess([]);
 
         /** @var eZContentClassAttribute $classAttribute */

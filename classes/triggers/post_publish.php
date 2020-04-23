@@ -30,7 +30,7 @@ class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
             return true;
         }
 
-        $query = "SELECT COUNT(*) FROM ezworkflow_event WHERE workflow_type_string = 'event_ezmultiplexer' AND CAST (data_text5 as integer) IN (SELECT workflow_id FROM ezworkflow_event WHERE workflow_type_string = 'event_{$workflowTypeString}') AND workflow_id IN (SELECT workflow_id FROM eztrigger WHERE name = 'post_publish')";
+        $query = "SELECT COUNT(*) FROM ezworkflow_event WHERE workflow_type_string = 'event_ezmultiplexer' AND data_int1 IN (SELECT workflow_id FROM ezworkflow_event WHERE workflow_type_string = 'event_{$workflowTypeString}') AND workflow_id IN (SELECT workflow_id FROM eztrigger WHERE name = 'post_publish')";
         $result = eZDB::instance()->arrayQuery($query);
 
         return $result[0]['count'] > 0;
