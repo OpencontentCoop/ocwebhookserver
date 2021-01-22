@@ -11,7 +11,7 @@ class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
 
     public function getName()
     {
-        return 'Standard post publish';
+        return 'Post publish event';
     }
 
     public function getDescription()

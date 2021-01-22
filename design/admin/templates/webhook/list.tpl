@@ -76,7 +76,7 @@
                                 <tr class="{$trClass}{if $webhook.enabled|ne(1)} muted{/if}">
                                     <td>{$webhook.id|wash()}</td>
                                     <td>{$webhook.name|wash()}</td>
-                                    <td>{$webhook.url|wash()}</td>
+                                    <td>{$webhook.method|wash()} {$webhook.url|wash()}</td>
                                     <td>{$webhook.secret|wash()}</td>
                                     <td>
                                         {foreach $webhook.triggers as $trigger}<span style="white-space: nowrap">{$trigger['name']|wash()}</span>{delimiter}<br />{/delimiter}{/foreach}

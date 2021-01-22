@@ -60,6 +60,9 @@ class OCWebHookTriggerRegistry
                 'description' => $trigger->getDescription(),
                 'can_enabled' => $trigger->canBeEnabled(),
                 'use_filter' => $trigger->useFilter(),
+                'can_customize_payload' => $trigger instanceof OCWebHookCustomPayloadSerializerInterface,
+                'available_payload_placeholders' => $trigger instanceof OCWebHookCustomPayloadSerializerInterface ? $trigger->getPlaceholders() : [],
+                'help_text' => $trigger instanceof OCWebHookCustomPayloadSerializerInterface ? $trigger->getHelpText() : '',
             ];
         }
 
@@ -67,13 +70,13 @@ class OCWebHookTriggerRegistry
     }
 
     /**
-     * @param $name
+     * @param $identifier
      * @return OCWebHookTriggerInterface|null
      */
-    public static function registeredTrigger($name)
+    public static function registeredTrigger($identifier)
     {
         self::loadAndRegisterTriggers();
 
-        return isset(self::$triggers[$name]) ? self::$triggers[$name] : null;
+        return isset(self::$triggers[$identifier]) ? self::$triggers[$identifier] : null;
     }
 }

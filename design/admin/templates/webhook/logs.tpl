@@ -87,7 +87,7 @@
                                 <th>{"Payload"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Created at"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Executed at"|i18n( 'extension/ocwebhookserver' )}</th>
-                                <th>{"Response headers/Error message"|i18n( 'extension/ocwebhookserver' )}</th>
+                                <th>{"Response"|i18n( 'extension/ocwebhookserver' )}</th>
                                 <th>{"Executor"|i18n( 'extension/ocwebhookserver' )}</th>
                             </tr>
                             </thead>
@@ -109,12 +109,10 @@
                                     </td>
                                     <td>{$job.response_status|wash()}</td>
                                     <td>{$job.trigger.name|wash()}</td>
-                                    <td><pre><code class="json">{$job.payload|wash()}</code></pre></td>
+                                    <td><pre style="max-width: 200px;max-height: 200px;overflow: auto"><code class="json">{$job.serialized_payload|json_encode()|wash()}</code></pre></td>
                                     <td>{$job.created_at|l10n( datetime )}</td>
                                     <td>{if $job.executed_at|int()|gt(0)}{$job.executed_at|l10n( datetime )}{/if}</td>
-                                    <td>
-                                        <pre><code class="json">{$job.response_headers|wash()}</code></pre>
-                                    </td>
+                                    <td><pre style="max-width: 200px;max-height: 200px;overflow: auto"><code class="json">{$job.response_headers|wash()}</code></pre></td>
                                     <td>
                                         {if $job.hostname}
                                             {$job.hostname|wash()} ({$job.pid|wash()})

@@ -88,6 +88,8 @@ class OCWebHookJob extends eZPersistentObject
             'function_attributes' => [
                 'webhook' => 'getWebhook',
                 'trigger' => 'getTrigger',
+                'serialized_payload' => 'getSerializedPayload',
+                'serialized_endpoint' => 'getSerializedEndpoint',
             ]
         ];
     }
@@ -97,9 +99,14 @@ class OCWebHookJob extends eZPersistentObject
         return OCWebHook::fetch($this->attribute('webhook_id'));
     }
 
-    public function getTrigger()
+    public function getTrigger($asObject = false)
     {
         $trigger = OCWebHookTriggerRegistry::registeredTrigger($this->attribute('trigger_identifier'));
+
+        if ($asObject){
+            return $trigger;
+        }
+
         if ($trigger){
             return [
                 'name' => $trigger->getName(),
@@ -116,6 +123,9 @@ class OCWebHookJob extends eZPersistentObject
     }
 
     /**
+     * @param int $offset
+     * @param int $limit
+     * @param null $conds
      * @return OCWebHookJob[]
      */
     public static function fetchList($offset = 0, $limit = 0, $conds = null)
@@ -126,9 +136,8 @@ class OCWebHookJob extends eZPersistentObject
             $aLimit = array('offset' => $offset, 'length' => $limit);
 
         $sort = array('id' => 'desc');
-        $aImports = self::fetchObjectList(self::definition(), null, $conds, $sort, $aLimit);
 
-        return $aImports;
+        return self::fetchObjectList(self::definition(), null, $conds, $sort, $aLimit);
     }
 
     public static function fetchListByWebHookId($webHookId, $offset = 0, $limit = 0, $status = null)
@@ -178,9 +187,7 @@ class OCWebHookJob extends eZPersistentObject
      */
     public static function fetch($id)
     {
-        $webhook = self::fetchObject(self::definition(), null, array('id' => (int)$id));
-
-        return $webhook;
+        return self::fetchObject(self::definition(), null, array('id' => (int)$id));
     }
 
     public static function removeUntilDate($timestamp)
@@ -189,5 +196,45 @@ class OCWebHookJob extends eZPersistentObject
         $db->begin();
         $db->query("DELETE FROM ocwebhook_job WHERE created_at <= $timestamp");
         $db->commit();
+    }
+
+    public function getSerializedPayload()
+    {
+        $trigger = $this->getTrigger(true);
+
+        $payload = $this->decodePayload();
+
+        if ($trigger instanceof OCWebHookCustomPayloadSerializerInterface){
+            $payload = $trigger->serializeCustomPayload($payload, $this->getWebhook());
+        }
+
+        return $payload;
+    }
+
+    public function getSerializedEndpoint()
+    {
+        $trigger = $this->getTrigger(true);
+        $endpointUrl = $this->getWebhook()->attribute('url');
+        if ($trigger instanceof OCWebHookCustomEndpointSerializerInterface){
+            $endpointUrl = $trigger->serializeCustomEndpoint(urldecode($endpointUrl), $this->decodePayload(), $this->getWebhook());
+        }
+
+        return $endpointUrl;
+    }
+
+    public static function encodePayload($payload)
+    {
+        return base64_encode(serialize($payload));
+    }
+
+    private function decodePayload()
+    {
+        if (base64_encode(base64_decode($this->attribute('payload'))) == $this->attribute('payload')){
+            $payload = unserialize(base64_decode($this->attribute('payload')));
+        }else{
+            $payload = json_decode($this->attribute('payload')); //bc
+        }
+
+        return $payload;
     }
 }

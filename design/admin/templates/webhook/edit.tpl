@@ -39,7 +39,11 @@
                 </tr>
                 <tr>
                     <td width="1"><label for="url">{"Endpoint"|i18n( 'extension/ocwebhookserver' )}</label></td>
-                    <td><input required="required" class="box" id="url" type="text" name="url" value="{$webhook.url|wash()}" /></td>
+                    <td><input required="required" class="box" id="url" type="text" name="url" value="{if $webhook.url|ne('')}{$webhook.url|urldecode()|wash()}{/if}" /></td>
+                </tr>
+                <tr>
+                    <td width="1"><label for="method">{"Method"|i18n( 'extension/ocwebhookserver' )}</label></td>
+                    <td><input required="required" class="box" id="method" type="text" name="method" value="{if $webhook.method|ne('')}{$webhook.method|wash()}{else}POST{/if}" /></td>
                 </tr>
                 <tr>
                     <td width="1"><label for="secret">{"Secret"|i18n( 'extension/ocwebhookserver' )}</label></td>

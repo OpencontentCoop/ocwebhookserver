@@ -206,7 +206,7 @@ class OCWebHook extends eZPersistentObject
     {
         $db = eZDB::instance();
         $triggerIdentifier = $db->escapeString($triggerIdentifier);
-        $res = $db->arrayQuery("SELECT webhook_id FROM ocwebhook_trigger_link WHERE trigger_identifier = '$triggerIdentifier'");
+        $res = $db->arrayQuery("SELECT webhook_id FROM ocwebhook_trigger_link WHERE trigger_identifier = '$triggerIdentifier' ORDER BY webhook_id ASC");
         $idList = array_column($res, 'webhook_id');
         if (!empty($idList)) {
             $webhookList = self::fetchObjectList(self::definition(), null, array(
@@ -266,5 +266,21 @@ class OCWebHook extends eZPersistentObject
         $uri = Psr7\UriNormalizer::normalize($uri);
 
         return (string)$uri;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasCustomPayloadParameters()
+    {
+        return !empty($this->attribute('payload_params'));
+    }
+
+    /**
+     * @return array
+     */
+    public function getCustomPayloadParameters()
+    {
+        return json_decode($this->attribute('payload_params'), true);
     }
 }

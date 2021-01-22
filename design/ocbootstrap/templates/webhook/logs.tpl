@@ -69,7 +69,7 @@
             {"No jobs"|i18n( 'extension/ocwebhookserver' )}
         {else}
             <form method="post" action="{$uri|ezurl(no)}" style="background: #fff">
-                <table class="table table-hover" cellspacing="0">
+                <table class="table" cellspacing="0">
                     <thead>
                     <tr>
                         <th width="1">{"ID"|i18n( 'extension/ocwebhookserver' )}</th>
@@ -77,14 +77,14 @@
                         <th style="white-space: nowrap">{"Response code"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Details"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Payload"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th style="white-space: nowrap">{"Response headers/Error message"|i18n( 'extension/ocwebhookserver' )}</th>
+                        <th style="white-space: nowrap">{"Response"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th></th>
                     </tr>
                     </thead>
 
                     <tbody>
-                    {foreach $jobs as $job sequence array( 'bglight', 'bgdark' ) as $trClass}
-                        <tr class="{$trClass}">
+                    {foreach $jobs as $job}
+                        <tr class="{if $job.execution_status|eq(2)}bg-success{elseif $job.execution_status|eq(3)}bg-danger{elseif $job.execution_status|eq(1)}bg-warning{/if}">
                             <td>{$job.id|wash()}</td>
                             <td>
                                 {if $job.execution_status|eq(0)}
@@ -114,9 +114,31 @@
                                 </dl>
 
                             </td>
-                            <td><pre><code class="json">{$job.payload|wash()}</code></pre></td>
                             <td>
-                                <pre><code class="json">{$job.response_headers|wash()}</code></pre>
+                                <button type="button" class="btn btn-info btn-sm" data-toggle="modal" data-target="#payloadModal-{$job.id}">
+                                    Show payload
+                                </button>
+                                <div class="modal fade" id="payloadModal-{$job.id}" tabindex="-1" role="dialog" aria-labelledby="payloadModal-{$job.id}">
+                                    <div class="modal-dialog modal-lg" role="document">
+                                        <div class="modal-content">
+                                            <pre><code class="json">{$job.serialized_payload|json_encode()|wash()}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {if $job.execution_status|gt(1)}
+                                <button type="button" class="btn btn-info btn-sm" data-toggle="modal" data-target="#responseModal-{$job.id}">
+                                    Show response
+                                </button>
+                                <div class="modal fade" id="responseModal-{$job.id}" tabindex="-1" role="dialog" aria-labelledby="responseModal-{$job.id}">
+                                    <div class="modal-dialog modal-lg" role="document">
+                                        <div class="modal-content">
+                                            <pre><code class="json">{$job.response_headers|wash()}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                {/if}
                             </td>
                         </tr>
                     {/foreach}

@@ -32,7 +32,16 @@
         </div>
         <div class="col-md-8">
             <input required="required" class="form-control" id="url" type="text" name="url"
-                   value="{$webhook.url|wash()}"/>
+                   value="{if $webhook.url|ne('')}{$webhook.url|urldecode()|wash()}{/if}"/>
+        </div>
+    </div>
+    <div class="row" style="margin-bottom: 10px">
+        <div class="col-md-2 col-md-offset-1">
+            <label for="method">{"Method"|i18n( 'extension/ocwebhookserver' )}</label>
+        </div>
+        <div class="col-md-8">
+            <input required="required" class="form-control" id="method" type="text" name="method"
+                   value="{if $webhook.method|ne('')}{$webhook.method|wash()}{else}POST{/if}"/>
         </div>
     </div>
     <div class="row" style="margin-bottom: 10px">
@@ -76,10 +85,38 @@
             <label for="headers">{"Headers"|i18n( 'extension/ocwebhookserver' )}</label>
         </div>
         <div class="col-md-8">
-            <textarea class="form-control" id="secret"
-                      name="headers">{$webhook.headers_array|implode("\n")}</textarea>
+            <textarea class="form-control" id="headers" name="headers">{$webhook.headers_array|implode("\n")}</textarea>
         </div>
     </div>
+    {if $can_customize_payload}
+    <div class="row" style="margin-bottom: 10px">
+        <div class="col-md-2 col-md-offset-1">
+            <label>{"Payload"|i18n( 'extension/ocwebhookserver' )}</label>
+        </div>
+        <div class="col-md-8">
+            <label class="checkbox">
+                <input type="checkbox" data-payload_editor value="1" {if $webhook.payload_params|eq('')}checked="checked"{/if} />
+                {"Use default payload"|i18n( 'extension/ocwebhookserver' )}
+            </label>
+
+            <div id="payload_editor" class="row" {if $webhook.payload_params|eq('')}style="display: none"{/if}>
+                <div class="col-md-8">
+                    <label for="payload_params">Custom payload</label>
+                    <p class="text-muted">{'Type Ctrl+L to format and validate the JSON string.'|i18n( 'extension/ocwebhookserver' )}</p>
+                    <p class="text-danger"></p>
+                    <textarea class="form-control" id="payload_params" rows="15" name="payload_params">{$webhook.payload_params}</textarea>
+                    {foreach $help_texts as $help_text}{$help_text}{/foreach}
+                </div>
+                <div class="col-md-4">
+                    <label style="display: block">Available placeholders</label>
+                    {foreach $payload_placeholders as $placeholder}
+                        <a style="margin: 2px" href="#" data-payload_placeholder class="btn btn-xs btn-default">{$placeholder|wash()}</a>
+                    {/foreach}
+                </div>
+            </div>
+        </div>
+    </div>
+    {/if}
     <div class="row" style="margin-bottom: 10px">
         <div class="col-md-8 col-md-offset-3">
             <label class="checkbox">
@@ -127,6 +164,61 @@
 <script type="text/javascript">
     $(document).ready(function () {
         var modal = $('#modal');
+        var payloadEditor = $('#payload_editor');
+        var payloadText = payloadEditor.find('textarea');
+
+        var validateAndFormatPayloadText = function (){
+            try
+            {
+                var value = payloadText.val();
+                if (value.length === 0){
+                    return true;
+                }
+                // format the string as well
+                var obj = JSON.parse(value);
+                payloadText.val(JSON.stringify(obj, null, 3));
+                payloadEditor.find('.text-danger').html('');
+
+                return true;
+            }
+            catch(e)
+            {
+                payloadEditor.find('.text-danger').html(e.message);
+
+                return false;
+            }
+        };
+
+        payloadText.on('keypress', function(e) {
+            var code = e.keyCode || e.wich;
+            if (code === 34) {
+                payloadText.insertAtCaret('"');
+            }
+            if (code === 123) {
+                payloadText.insertAtCaret('}');
+            }
+            if (code === 91) {
+                payloadText.insertAtCaret(']');
+            }
+        }).on('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && ( String.fromCharCode(e.which).toLowerCase() === 'l') ) {
+                validateAndFormatPayloadText();
+            }
+        });
+        $('[data-payload_placeholder]').on('click', function (e) {
+            payloadText.insertAtCaret($(this).text());
+            e.preventDefault();
+        });
+        $('[data-payload_editor]').on('click', function (e) {
+            if ($(this).is(':checked')){
+                payloadText.val('');
+                payloadEditor.find('.text-danger').html('')
+                payloadEditor.hide();
+            }else{
+                payloadEditor.show();
+            }
+        });
+        validateAndFormatPayloadText();
         $('[data-trigger]').on('click', function (e) {
             modal.modal('show');
             var self = $(this);
@@ -162,6 +254,38 @@
                 }
             }));
             e.preventDefault();
+        });
+
+        var library = {};
+        library.json = {
+            replacer: function(match, pIndent, pKey, pVal, pEnd) {
+                var key = '<span class=json-key>';
+                var val = '<span class=json-value>';
+                var str = '<span class=json-string>';
+                var r = pIndent || '';
+                if (pKey)
+                    r = r + key + pKey.replace(/[": ]/g, '') + '</span>: ';
+                if (pVal)
+                    r = r + (pVal[0] === '"' ? str : val) + pVal + '</span>';
+                return r + (pEnd || '');
+            },
+            prettyPrint: function(obj) {
+                var jsonLine = /^( *)("[\w]+": )?("[^"]*"|[\w.+-]*)?([,[{])?$/mg;
+                return JSON.stringify(obj, null, 3)
+                    .replace(/&/g, '&amp;').replace(/\\"/g, '&quot;')
+                    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(jsonLine, library.json.replacer);
+            }
+        };
+
+        $('code.json').each(function () {
+            try {
+                var tmpData = JSON.parse($(this).text());
+                $(this).html(library.json.prettyPrint(tmpData));
+            } catch (e) {
+                $(this).parent().css({'white-space':'normal'});
+                console.log(e);
+            }
         });
     });
 </script>
