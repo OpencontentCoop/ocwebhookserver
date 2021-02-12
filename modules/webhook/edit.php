@@ -36,7 +36,7 @@ if ($webHook instanceof OCWebHook) {
         }
         $webHook->setAttribute('headers', json_encode($headers));
 
-        if ($http->hasPostVariable('payload_params')){
+        if ($http->hasPostVariable('payload_params') && !empty($http->postVariable('payload_params'))){
             $payloadParamsValue = json_encode(json_decode($http->postVariable('payload_params'), true));
             $webHook->setAttribute('payload_params', $payloadParamsValue);
             if (json_decode($payloadParamsValue) === NULL) {
