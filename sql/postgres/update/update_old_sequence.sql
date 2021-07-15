@@ -1,12 +1,12 @@
-CREATE SEQUENCE ocwebhook_failure_id_seq
+CREATE SEQUENCE IF NOT EXISTS ocwebhook_failure_id_seq
   START 1
   INCREMENT 1
   MAXVALUE 9223372036854775807
   MINVALUE 1
   CACHE 1;
 
-CREATE TABLE ocwebhook_failure (
-   id integer DEFAULT nextval('ocwebhook_failure_id_seq'::text) NOT NULL,
+CREATE TABLE IF NOT EXISTS ocwebhook_failure (
+   id integer DEFAULT nextval('ocwebhook_failure_s'::text) NOT NULL,
    job_id integer DEFAULT 0 NOT NULL,
    executed_at integer,
    response_headers TEXT,
