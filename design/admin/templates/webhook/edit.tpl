@@ -78,6 +78,12 @@
                         <input type="checkbox" name="enabled" value="1" {if $webhook.enabled|eq(1)}checked="checked"{/if} />
                     </td>
                 </tr>
+                <tr>
+                    <td width="1"><label for="retry_enabled">{"Enable retries on failure"|i18n( 'extension/ocwebhookserver' )}</label></td>
+                    <td>
+                        <input type="checkbox" name="retry_enabled" value="1" {if $webhook.retry_enabled|eq(1)}checked="checked"{/if} />
+                    </td>
+                </tr>
             </table>
         </div>
     </div>

@@ -35,5 +35,12 @@ $ViewList['remove'] = array(
     'functions' => array('admin'),
     "default_navigation_part" => 'ezsetupnavigationpart',
 );
+$ViewList['job'] = array(
+    'script' => 'job.php',
+    'params' => array('JobID', 'Action'),
+    'unordered_params' => array(),
+    'functions' => array('admin'),
+    "default_navigation_part" => 'ezsetupnavigationpart',
+);
 
 $FunctionList['admin'] = array();

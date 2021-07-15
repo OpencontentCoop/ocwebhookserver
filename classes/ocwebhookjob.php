@@ -10,6 +10,8 @@ class OCWebHookJob extends eZPersistentObject
 
     const STATUS_FAILED = 3;
 
+    const STATUS_RETRYING = 4;
+
     public static function definition()
     {
         return [
@@ -90,6 +92,8 @@ class OCWebHookJob extends eZPersistentObject
                 'trigger' => 'getTrigger',
                 'serialized_payload' => 'getSerializedPayload',
                 'serialized_endpoint' => 'getSerializedEndpoint',
+                'failures' => 'getFailures',
+                'next_retry' => 'getNextRetry',
             ]
         ];
     }
@@ -125,19 +129,24 @@ class OCWebHookJob extends eZPersistentObject
     /**
      * @param int $offset
      * @param int $limit
-     * @param null $conds
+     * @param array|null $conds
+     * @param string|null $customConds
+     * @param array|null $sort
      * @return OCWebHookJob[]
      */
-    public static function fetchList($offset = 0, $limit = 0, $conds = null)
+    public static function fetchList($offset = 0, $limit = 0, $conds = null, $customConds = null, $sort = null)
     {
         if (!$limit)
             $aLimit = null;
         else
-            $aLimit = array('offset' => $offset, 'length' => $limit);
+            $aLimit = ['offset' => $offset, 'length' => $limit];
 
-        $sort = array('id' => 'desc');
+        if (!is_array($sort)) {
+            $sort = ['id' => 'desc'];
+        }
 
-        return self::fetchObjectList(self::definition(), null, $conds, $sort, $aLimit);
+        return self::fetchObjectList(self::definition(), null, $conds, $sort, $aLimit,
+            true, false, null, null, $customConds);
     }
 
     public static function fetchListByWebHookId($webHookId, $offset = 0, $limit = 0, $status = null)
@@ -160,25 +169,34 @@ class OCWebHookJob extends eZPersistentObject
         return self::count(OCWebHookJob::definition(), $conds);
     }
 
-    public static function fetchCountByExecutionStatus($status)
+    public static function fetchCountByExecutionStatus($status, $customConds = null)
     {
-        return OCWebHookJob::count(OCWebHookJob::definition(), ['execution_status' => (int)$status]);
+        $rows = eZPersistentObject::fetchObjectList(
+            OCWebHookJob::definition(), [], ['execution_status' => (int)$status], null, null,
+            false, false, [['operation' => 'COUNT(*)', 'name' => 'row_count']], null, $customConds );
+
+        return $rows[0]['row_count'];
     }
 
-    public static function fetchListByExecutionStatus($status, $offset = 0, $limit = 0)
+    public static function fetchListByExecutionStatus($status, $offset = 0, $limit = 0, $customConds = null, $sort = null)
     {
-        return self::fetchList($offset, $limit, ['execution_status' => (int)$status]);
+        return self::fetchList($offset, $limit, ['execution_status' => (int)$status], $customConds, $sort);
     }
-
 
     public static function fetchTodoCount()
     {
-        return OCWebHookJob::fetchCountByExecutionStatus(OCWebHookJob::STATUS_PENDING);
+        return OCWebHookJob::fetchCountByExecutionStatus(OCWebHookJob::STATUS_PENDING,
+            ' AND webhook_id in (select id from ocwebhook where enabled = 1) '
+        );
     }
 
     public static function fetchTodoList($offset, $limit)
     {
-        return OCWebHookJob::fetchListByExecutionStatus(OCWebHookJob::STATUS_PENDING, $offset, $limit);
+        return OCWebHookJob::fetchListByExecutionStatus(
+            OCWebHookJob::STATUS_PENDING, $offset, $limit,
+            ' AND webhook_id in (select id from ocwebhook where enabled = 1) ',
+            ['id' => 'asc']
+        );
     }
 
     /**
@@ -187,7 +205,7 @@ class OCWebHookJob extends eZPersistentObject
      */
     public static function fetch($id)
     {
-        return self::fetchObject(self::definition(), null, array('id' => (int)$id));
+        return self::fetchObject(self::definition(), null, ['id' => (int)$id]);
     }
 
     public static function removeUntilDate($timestamp)
@@ -237,4 +255,91 @@ class OCWebHookJob extends eZPersistentObject
 
         return $payload;
     }
+
+    public function retryIfNeeded()
+    {
+        if ($this->attribute('execution_status') == OCWebHookJob::STATUS_FAILED) {
+            $this->setAttribute('execution_status', OCWebHookJob::STATUS_PENDING);
+            $this->store();
+            OCWebHookQueue::instance(OCWebHookQueue::HANDLER_IMMEDIATE)
+                ->pushJobs([$this])
+                ->execute();
+        }
+
+        return $this;
+    }
+
+    public static function batchRetryIfNeeded(array $jobIdList)
+    {
+        if (empty($jobIdList)){
+            return false;
+        }
+        $jobs = self::fetchObjectList(self::definition(), null, [
+            'id' => [$jobIdList],
+            'execution_status' => OCWebHookJob::STATUS_FAILED
+        ]);
+
+        $db = eZDB::instance();
+        $db->begin();
+        foreach ($jobs as $job){
+            $job->setAttribute('execution_status', OCWebHookJob::STATUS_PENDING);
+            $job->store();
+        }
+        $db->commit();
+
+        return true;
+    }
+
+    public function stopRetry()
+    {
+        if ($this->attribute('execution_status') == OCWebHookJob::STATUS_RETRYING) {
+            OCWebHookFailure::cleanup($this->attribute('id'));
+            $this->setAttribute('execution_status', self::STATUS_FAILED);
+            $this->store();
+        }
+    }
+
+    public static function batchStopRetry(array $jobIdList)
+    {
+        if (empty($jobIdList)){
+            return false;
+        }
+        $jobs = self::fetchObjectList(self::definition(), null, [
+            'id' => [$jobIdList],
+            'execution_status' => OCWebHookJob::STATUS_RETRYING
+        ]);
+
+        $db = eZDB::instance();
+        $db->begin();
+        foreach ($jobs as $job){
+            OCWebHookFailure::cleanup($job->attribute('id'));
+            $job->setAttribute('execution_status', OCWebHookJob::STATUS_FAILED);
+            $job->store();
+        }
+        $db->commit();
+
+        return true;
+    }
+
+    public function registerRetryIfNeeded()
+    {
+        if ($this->getWebhook()->attribute('retry_enabled')) {
+            if ($this->attribute('execution_status') == OCWebHookJob::STATUS_FAILED) {
+                OCWebHookFailure::register($this);
+            } elseif ($this->attribute('execution_status') == OCWebHookJob::STATUS_DONE) {
+                OCWebHookFailure::cleanup($this->attribute('id'));
+            }
+        }
+    }
+
+    public function getFailures()
+    {
+        return OCWebHookFailure::fetchListByJob($this);
+    }
+
+    public function getNextRetry()
+    {
+        return OCWebHookFailure::getNextRetryByJob($this);
+    }
+
 }

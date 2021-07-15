@@ -1,6 +1,6 @@
 <section class="hgroup">
     <h1>
-        {'Webhook logs'|i18n( 'extension/ocwebhookserver' )}
+        {$webhook.name|wash()} {'Webhook logs'|i18n( 'extension/ocwebhookserver' )}
         <a class="pull-right" href="{'webhook/list/'|ezurl(no)}"><small>{'Back to webhook list'|i18n( 'extension/ocwebhookserver' )}</small></a>
     </h1>
 </section>
@@ -52,6 +52,11 @@
             {else}
                 <a class="btn btn-info" href="{concat('webhook/logs/',$webhook.id, '/(status)/2')|ezurl(no)}">{"Done"|i18n( 'extension/ocwebhookserver' )}</a>
             {/if}
+            {if $status|eq(4)}
+                <span class="btn btn-default current">{"Retrying"|i18n( 'extension/ocwebhookserver' )}</span>
+            {else}
+                <a class="btn btn-info" href="{concat('webhook/logs/',$webhook.id, '/(status)/4')|ezurl(no)}">{"Retrying"|i18n( 'extension/ocwebhookserver' )}</a>
+            {/if}
             {if $status|eq(3)}
                 <span class="btn btn-default current">{"Failed"|i18n( 'extension/ocwebhookserver' )}</span>
             {else}
@@ -68,23 +73,30 @@
         {if $job_count|eq(0)}
             {"No jobs"|i18n( 'extension/ocwebhookserver' )}
         {else}
-            <form method="post" action="{$uri|ezurl(no)}" style="background: #fff">
+            <form name="logsform" method="post" action="{concat($uri, $uri_parameters)|ezurl(no)}" style="background: #fff">
                 <table class="table" cellspacing="0">
                     <thead>
                     <tr>
+                        {if or($status|eq(3), $status|eq(4))}
+                        <th width="1"></th>
+                        {/if}
                         <th width="1">{"ID"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Status"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th style="white-space: nowrap">{"Response code"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Details"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Payload"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th style="white-space: nowrap">{"Response"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th></th>
                     </tr>
                     </thead>
 
                     <tbody>
                     {foreach $jobs as $job}
-                        <tr class="{if $job.execution_status|eq(2)}bg-success{elseif $job.execution_status|eq(3)}bg-danger{elseif $job.execution_status|eq(1)}bg-warning{/if}">
+                        <tr class="{if $job.execution_status|eq(2)}bg-success{elseif $job.execution_status|eq(3)}bg-danger{elseif $job.execution_status|eq(1)}bg-warning{elseif $job.execution_status|eq(4)}bg-info{/if}">
+                            {if or($status|eq(3), $status|eq(4))}
+                                <th width="1">
+                                    <input name="Jobs[]" type="checkbox" value="{$job.id|wash()}" />
+                                </th>
+                            {/if}
                             <td>{$job.id|wash()}</td>
                             <td>
                                 {if $job.execution_status|eq(0)}
@@ -95,6 +107,28 @@
                                     {"Done"|i18n( 'extension/ocwebhookserver' )}
                                 {elseif $job.execution_status|eq(3)}
                                     {"Failed"|i18n( 'extension/ocwebhookserver' )}
+                                    <p><a href="{concat('webhook/job/',$job.id,'/retry')|ezurl(no)}" class="btn btn-danger btn-xs">{"Retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                {elseif $job.execution_status|eq(4)}
+                                    {"Retrying..."|i18n( 'extension/ocwebhookserver' )}
+                                    {def $failures = $job.failures}
+                                    {if $failures|count()}
+                                    <ol style="font-size: .875em">
+                                        {foreach $failures as $failure}
+                                            <li title="#{$failure.id|wash()}">
+                                                {$failure.executed_at|l10n( shortdatetime )}: {if $failure.response_status}{$failure.response_status|wash()}{else}?{/if}
+                                            </li>
+                                        {/foreach}
+                                        {if $job.next_retry}
+                                            <li>
+                                                <em>{"Next retry:"|i18n( 'extension/ocwebhookserver' )} {$job.next_retry|l10n( shortdatetime )}</em>
+                                            </li>
+                                        {/if}
+                                    </ol>
+                                    {/if}
+                                    {if $job.next_retry}
+                                        <p><a href="{concat('webhook/job/',$job.id, '/stop')|ezurl(no)}" class="btn btn-danger btn-xs">{"Stop retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                    {/if}
+                                    {undef $failures}
                                 {/if}
                             </td>
                             <td class="text-center">{$job.response_status|wash()}</td>
@@ -143,6 +177,24 @@
                         </tr>
                     {/foreach}
                     </tbody>
+                    {if or($status|eq(3), $status|eq(4))}
+                        <tfoot>
+                            <tr>
+                                <td colspan="7">
+                                    <a href="#" class="btn btn-default" onclick="ezjs_toggleCheckboxes( document.logsform, 'Jobs[]' ); return false;">
+                                        Toggle selection{*'Toggle selection'|i18n( 'design/ocbootstrap/content/history' )*}
+                                    </a>
+                                    {if $status|eq(3)}
+                                        <button type="submit" class="btn btn-danger" name="BatchRetry">Retry selected</button>
+                                        <input type="hidden" name="BatchAction" value="Retry" />
+                                    {elseif $status|eq(4)}
+                                        <button type="submit" class="btn btn-danger" name="BatchStopRetry">Stop retry selected</button>
+                                        <input type="hidden" name="BatchAction" value="StopRetry" />
+                                    {/if}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    {/if}
                 </table>
             </form>
         {/if}
@@ -156,7 +208,7 @@
     </div>
 
 </div>
-
+{ezscript_require( 'tools/ezjsselection.js' )}
 {literal}
 <script>
     $(document).ready(function () {

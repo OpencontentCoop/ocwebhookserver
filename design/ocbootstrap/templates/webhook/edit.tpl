@@ -126,6 +126,14 @@
         </div>
     </div>
     <div class="row" style="margin-bottom: 10px">
+        <div class="col-md-8 col-md-offset-3">
+            <label class="checkbox">
+                <input type="checkbox" name="retry_enabled" value="1" {if $webhook.retry_enabled|eq(1)}checked="checked"{/if} />
+                {"Enable retries on failure"|i18n( 'extension/ocwebhookserver' )}
+            </label>
+        </div>
+    </div>
+    <div class="row" style="margin-bottom: 10px">
         <div class="col-md-11 text-right">
             <input class="btn btn-lg btn-success" type="submit" name="Store"
                    value="{'Store webhook'|i18n( 'extension/ocwebhookserver' )}"/>

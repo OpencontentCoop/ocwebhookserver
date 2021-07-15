@@ -68,6 +68,11 @@
                             {else}
                                 <a href="{concat('webhook/logs/',$webhook.id, '/(status)/3')|ezurl(no)}">{"Failed"|i18n( 'extension/ocwebhookserver' )}</a>
                             {/if}
+                            {if $status|eq(4)}
+                                <span class="current">{"Retrying"|i18n( 'extension/ocwebhookserver' )}</span>
+                            {else}
+                                <a href="{concat('webhook/logs/',$webhook.id, '/(status)/4')|ezurl(no)}">{"Retrying"|i18n( 'extension/ocwebhookserver' )}</a>
+                            {/if}
                         </p>
                     </div>
                 </div>
@@ -105,6 +110,26 @@
                                             {"Done"|i18n( 'extension/ocwebhookserver' )}
                                         {elseif $job.execution_status|eq(3)}
                                             {"Failed"|i18n( 'extension/ocwebhookserver' )}
+                                            <p><a href="{concat('webhook/job/',$job.id, '/retry')|ezurl(no)}" class="button">{"Retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                        {elseif $job.execution_status|eq(4)}
+                                            {"Retrying"|i18n( 'extension/ocwebhookserver' )}
+                                            {def $failures = $job.failures}
+                                            {if $failures|count()}
+                                                <ol style="font-size: .875em">
+                                                    {foreach $failures as $failure}
+                                                        <li title="#{$failure.id|wash()}">
+                                                            {$failure.executed_at|l10n( shortdatetime )}: {if $failure.response_status}{$failure.response_status|wash()}{else}?{/if}
+                                                        </li>
+                                                    {/foreach}
+                                                    {if $job.next_retry}
+                                                        <li>
+                                                            <em>{"Next retry:"|i18n( 'extension/ocwebhookserver' )} {$job.next_retry|l10n( shortdatetime )}</em>
+                                                            <p><a href="{concat('webhook/job/',$job.id, '/stop')|ezurl(no)}" class="button">{"Stop retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                                        </li>
+                                                    {/if}
+                                                </ol>
+                                            {/if}
+                                            {undef $failures}
                                         {/if}
                                     </td>
                                     <td>{$job.response_status|wash()}</td>

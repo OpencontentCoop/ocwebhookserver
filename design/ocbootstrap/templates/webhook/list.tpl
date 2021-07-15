@@ -50,10 +50,6 @@
                     <tr>
                         <th width="1">{"ID"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th>{"Name"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th>{"Endpoint"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th>{"Secret"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th>{"Triggers"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th>{"Headers"|i18n( 'extension/ocwebhookserver' )}</th>
                         <th width="1"></th>
                         <th width="1"></th>
                         <th width="1"></th>
@@ -66,15 +62,25 @@
                         <tr class="{if $webhook.enabled|ne(1)}active{/if}">
                             <td>{$webhook.id|wash()}</td>
                             <td>{$webhook.name|wash()}</td>
-                            <td>{$webhook.method|wash()} {$webhook.url|urldecode|wash()}</td>
-                            <td>{$webhook.secret|wash()}</td>
                             <td>
-                                {foreach $webhook.triggers as $trigger}<span style="white-space: nowrap">{$trigger['name']|wash()}</span>{delimiter}<br />{/delimiter}{/foreach}
-                            </td>
-                            <td>
-                                {foreach $webhook.headers_array as $header}
-                                    {$header|wash()}{delimiter}<br />{/delimiter}
-                                {/foreach}
+                                <dl class="dl-horizontal">
+                                    <dt>{"Endpoint"|i18n( 'extension/ocwebhookserver' )}:</dt>
+                                    <dd><code>{$webhook.method|upcase|wash()} {$webhook.url|urldecode|wash()}</code></dd>
+                                    {if $webhook.secret|ne('')}
+                                    <dt>{"Secret"|i18n( 'extension/ocwebhookserver' )}:</dt>
+                                    <dd><code>{$webhook.secret|wash()}</code></dd>
+                                    {/if}
+                                    <dt>{"Triggers"|i18n( 'extension/ocwebhookserver' )}:</dt>
+                                    <dd>{foreach $webhook.triggers as $trigger}<span class="badge">{$trigger['name']|wash()}</span>{delimiter} {/delimiter}{/foreach}</dd>
+                                    {if $webhook.headers_array|count()}
+                                        <dt>{"Headers"|i18n( 'extension/ocwebhookserver' )}:</dt>
+                                        <dd>
+                                            {foreach $webhook.headers_array as $header}
+                                                <code>{$header|wash()}</code>{delimiter}<br />{/delimiter}
+                                            {/foreach}
+                                        </dd>
+                                    {/if}
+                                </dl>
                             </td>
                             <td>
                                 <button class="btn btn-sm btn-default" type="submit" {if $webhook.enabled|ne(1)}disabled="disabled"{/if} class="button" name="TestWebHook" value="{$webhook.id}"><i class="fa fa-gear"></i> {"Test"|i18n( 'extension/ocwebhookserver' )}</button>

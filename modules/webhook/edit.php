@@ -24,6 +24,7 @@ if ($webHook instanceof OCWebHook) {
         $webHook->setAttribute('method', strtoupper($http->postVariable('method')));
         $webHook->setAttribute('secret', $http->postVariable('secret'));
         $webHook->setAttribute('enabled', (int)$http->hasPostVariable('enabled'));
+        $webHook->setAttribute('retry_enabled', (int)$http->hasPostVariable('retry_enabled'));
 
         $headers = [];
         $rawHeaders = explode("\n", $http->postVariable('headers'));

@@ -53,6 +53,13 @@ $schema = array (
         'type' => 'longtext',
         'default' => false,
       ),
+      'retry_enabled' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 1,
+      ),
       'secret' =>
       array (
         'type' => 'longtext',
@@ -91,6 +98,78 @@ $schema = array (
         'fields' =>
         array (
           0 => 'name',
+        ),
+      ),
+    ),
+  ),
+  'ocwebhook_failure' =>
+  array (
+    'name' => 'ocwebhook_failure',
+    'fields' =>
+    array (
+      'executed_at' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'hostname' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'id' =>
+      array (
+        'type' => 'auto_increment',
+        'default' => false,
+      ),
+      'job_id' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+      'pid' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'response_headers' =>
+      array (
+        'type' => 'longtext',
+        'default' => false,
+      ),
+      'response_status' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'default' => NULL,
+      ),
+      'scheduled' =>
+      array (
+        'length' => 11,
+        'type' => 'int',
+        'not_null' => '1',
+        'default' => 0,
+      ),
+    ),
+    'indexes' =>
+    array (
+      'PRIMARY' =>
+      array (
+        'type' => 'primary',
+        'fields' =>
+        array (
+          0 => 'id',
+        ),
+      ),
+      'ocwebhook_failure_job' =>
+      array (
+        'type' => 'non-unique',
+        'fields' =>
+        array (
+          0 => 'job_id',
         ),
       ),
     ),

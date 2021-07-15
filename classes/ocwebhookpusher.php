@@ -111,6 +111,7 @@ class OCWebHookPusher
                 }
 
                 $job->store();
+                $job->registerRetryIfNeeded();
             }
         }
     }

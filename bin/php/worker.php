@@ -56,7 +56,7 @@ if ($verbose){
 try {
     while (true) {
         if (!isTooBusy($maxLoadValue)) {
-
+            OCWebHookFailure::scheduleRetries();
             if (OCWebHookJob::fetchTodoCount()) {
 
                 if ($verbose) echo '+';
@@ -74,6 +74,7 @@ try {
     }
 } catch (Exception $e) {
     $cli->error($e->getMessage());
+    $cli->output($e->getTraceAsString());
 }
 
 $script->shutdown();

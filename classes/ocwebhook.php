@@ -70,6 +70,12 @@ class OCWebHook extends eZPersistentObject
                     'default' => time(),
                     'required' => false
                 ],
+                'retry_enabled' => [
+                    'name' => 'retry_enabled',
+                    'datatype' => 'integer',
+                    'default' => 1,
+                    'required' => true
+                ],
             ],
             'keys' => ['id'],
             'increment_key' => 'id',
