@@ -7,11 +7,26 @@ use GuzzleHttp\Psr7\Response;
 
 class OCWebHookPusher
 {
-    private $requestTimeout = 10;
+    private $requestTimeout = 60;
 
     private $verifySsl = true;
 
     private $signatureHeaderName = 'Signature';
+
+    public function __construct()
+    {
+        $webhookINI = eZINI::instance('webhook.ini');
+        $pusherSettings = $webhookINI->group('PusherSettings');
+        if (isset($pusherSettings['RequestTimeout'])) {
+            $this->requestTimeout = (int)$pusherSettings['RequestTimeout'];
+        }
+        if (isset($pusherSettings['VerifySsl'])) {
+            $this->verifySsl = $pusherSettings['VerifySsl'] == 'enabled';
+        }
+        if (isset($pusherSettings['SignatureHeaderName'])) {
+            $this->signatureHeaderName = $pusherSettings['SignatureHeaderName'];
+        }
+    }
 
     /**
      * @param OCWebHookJob[] $jobs
