@@ -73,12 +73,18 @@ class OCWebHookFailure extends eZPersistentObject
 
     public static function register(OCWebHookJob $job)
     {
+        $jobId = (int)$job->attribute('id');
+        $count = self::count(self::definition(), ['job_id' => $jobId]);
+        if (($count+1) == self::MAX_RETRY_COUNT){
+            eZDebug::writeDebug("Maximum number of attempts reached for job #$jobId", __METHOD__);
+            self::cleanup($job->attribute('id'));
+            return false;
+        }
+
         $db = eZDB::instance();
         $db->begin();
 
-        $jobId = (int)$job->attribute('id');
         $db->query("UPDATE ocwebhook_failure SET scheduled = 0 WHERE job_id = $jobId");
-
         $failureJob = new OCWebHookFailure([
             'job_id' => $job->attribute('id'),
             'executed_at' => $job->attribute('executed_at'),
@@ -93,6 +99,9 @@ class OCWebHookFailure extends eZPersistentObject
         $job->store();
 
         $db->commit();
+        eZDebug::writeDebug("Register a failure for job #$jobId", __METHOD__);
+
+        return true;
     }
 
     public static function cleanup($jobId)
@@ -137,7 +146,7 @@ class OCWebHookFailure extends eZPersistentObject
         return $db->arrayQuery($query);
     }
 
-    public static function calculateNextRetry($retryCount, $lastExecutedAt)
+    private static function calculateNextRetry($retryCount, $lastExecutedAt)
     {
         $time = pow(self::CALC_BASE, ($retryCount + self::CALC_GAP));
 
