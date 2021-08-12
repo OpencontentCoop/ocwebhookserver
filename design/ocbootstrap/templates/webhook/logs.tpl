@@ -126,7 +126,10 @@
                                     </ol>
                                     {/if}
                                     {if $job.next_retry}
-                                        <p><a href="{concat('webhook/job/',$job.id, '/stop')|ezurl(no)}" class="btn btn-danger btn-xs">{"Stop retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                        <p>
+                                            <a href="{concat('webhook/job/',$job.id, '/stop')|ezurl(no)}" class="btn btn-danger btn-xs">{"Stop retry"|i18n( 'extension/ocwebhookserver' )}</a>
+                                            <a href="{concat('webhook/job/',$job.id, '/retry')|ezurl(no)}" class="btn btn-danger btn-xs">{"Retry now"|i18n( 'extension/ocwebhookserver' )}</a>
+                                        </p>
                                     {/if}
                                     {undef $failures}
                                 {/if}

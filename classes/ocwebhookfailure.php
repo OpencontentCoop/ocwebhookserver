@@ -6,7 +6,7 @@ class OCWebHookFailure extends eZPersistentObject
 
     const CALC_GAP = 8;
 
-    const MAX_RETRY_COUNT = 11;
+    const MAX_RETRY_COUNT = 9;
 
     public static function definition()
     {
@@ -114,7 +114,7 @@ class OCWebHookFailure extends eZPersistentObject
         $failures = self::fetchForSchedule($job->attribute('id'));
         foreach ($failures as $index => $failure) {
             if ($failure['job_id'] == $job->attribute('id') && $failure['retry_count'] < self::MAX_RETRY_COUNT){
-                return self::calculateNextRetry($failure['retry_count'], $failure['created_at'], $failure['last_executed_at']);
+                return self::calculateNextRetry($failure['retry_count'], $failure['last_executed_at']);
             }
         }
 
@@ -137,14 +137,11 @@ class OCWebHookFailure extends eZPersistentObject
         return $db->arrayQuery($query);
     }
 
-    private static function calculateNextRetry($retryCount, $createdAt, $lastExecutedAt)
+    public static function calculateNextRetry($retryCount, $lastExecutedAt)
     {
         $time = pow(self::CALC_BASE, ($retryCount + self::CALC_GAP));
-        $nextRetry = $time + $createdAt;
 
-        return ($nextRetry <= $lastExecutedAt) ?
-            self::calculateNextRetry($retryCount, $lastExecutedAt, $lastExecutedAt) :
-            $nextRetry;
+        return $time + $lastExecutedAt;
     }
 
     public static function scheduleRetries()
@@ -168,7 +165,7 @@ class OCWebHookFailure extends eZPersistentObject
                 $db->query("UPDATE ocwebhook_job SET execution_status = $failedStatus WHERE id = $jobId AND execution_status = $retryingStatus");
                 $db->commit();
             }
-            $nextRetry = self::calculateNextRetry($failure['retry_count'], $failure['created_at'], $failure['last_executed_at']);
+            $nextRetry = self::calculateNextRetry($failure['retry_count'], $failure['last_executed_at']);
             if ($now >= $nextRetry) {
                 eZDebug::writeDebug("Do schedule a new retry for job #$jobId", __METHOD__);
                 $db->begin();

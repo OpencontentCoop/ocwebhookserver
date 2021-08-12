@@ -125,6 +125,7 @@
                                                         <li>
                                                             <em>{"Next retry:"|i18n( 'extension/ocwebhookserver' )} {$job.next_retry|l10n( shortdatetime )}</em>
                                                             <p><a href="{concat('webhook/job/',$job.id, '/stop')|ezurl(no)}" class="button">{"Stop retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
+                                                            <p><a href="{concat('webhook/job/',$job.id, '/retry')|ezurl(no)}" class="button">{"Retry"|i18n( 'extension/ocwebhookserver' )}</a></p>
                                                         </li>
                                                     {/if}
                                                 </ol>
