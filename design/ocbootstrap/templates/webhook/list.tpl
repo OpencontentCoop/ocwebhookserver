@@ -54,6 +54,7 @@
                         <th width="1"></th>
                         <th width="1"></th>
                         <th width="1"></th>
+                        <th width="1"></th>
                     </tr>
                     </thead>
 
