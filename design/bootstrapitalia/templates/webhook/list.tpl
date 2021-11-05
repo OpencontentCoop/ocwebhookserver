@@ -46,18 +46,19 @@
             <form method="post" action="{$uri|ezurl(no)}" style="background: #fff">
 
                 <table class="table table-hover">
-                    {*
+                    <thead>
                     <tr>
-                        <th width="1">{"ID"|i18n( 'extension/ocwebhookserver' )}</th>
-                        <th width="1">{"Name"|i18n( 'extension/ocwebhookserver' )}</th>
+                        <th width="1"></th>
                         <th></th>
-                        <th width="1"></th>
-                        <th width="1"></th>
-                        <th width="1"></th>
-                        <th width="1"></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                        <th class="text-center" width="1"><i class="fa fa-clock-o"></i></th>
+                        <th class="text-center" width="1"><i class="fa fa-refresh"></i></th>
                     </tr>
                     </thead>
-                    *}
                     <tbody>
                     {foreach $webhooks as $webhook}
                         <tr class="{if $webhook.enabled|ne(1)}table-secondary{/if}">
@@ -107,6 +108,12 @@
                                            href="{concat('webhook/remove/', $webhook.id)|ezurl(no)}"><i class="fa fa-trash"></i> {"Remove"|i18n( 'extension/ocwebhookserver' )}</a>
                                     </div>
                                 </div>
+                            </td>
+                            <td class="text-center">
+                                {if is_set($stats[$webhook.id]['pending'])}{$stats[$webhook.id]['pending']}{else}0{/if}
+                            </td>
+                            <td class="text-center">
+                                {if $webhook.retry_enabled|eq(0)}NO{elseif is_set($stats[$webhook.id]['retry'])}{$stats[$webhook.id]['retry']}{else}0{/if}
                             </td>
                         </tr>
                     {/foreach}

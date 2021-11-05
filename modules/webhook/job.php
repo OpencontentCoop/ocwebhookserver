@@ -37,8 +37,8 @@ if ($job instanceof OCWebHookJob) {
                 'text' => ezpI18n::tr('extension/ocwebhookserver', 'Webhooks')
             ],
             [
-                'url' => false,
-                'text' => ezpI18n::tr('extension/ocwebhookserver', 'Log')
+                'url' => 'webhook/logs/' . $webHook->attribute('id'),
+                'text' => ezpI18n::tr('extension/ocwebhookserver', 'Logs')
             ],
             [
                 'url' => false,

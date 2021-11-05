@@ -76,7 +76,14 @@
                                 <tr class="{$trClass}{if $webhook.enabled|ne(1)} muted{/if}">
                                     <td>{$webhook.id|wash()}</td>
                                     <td>{$webhook.name|wash()}</td>
-                                    <td>{$webhook.method|wash()} {$webhook.url|wash()}</td>
+                                    <td>
+                                        {$webhook.method|wash()} {$webhook.url|wash()}
+                                        {if is_set($stats[$webhook.id])}
+                                            <br />
+                                            <em>Pending: {if is_set($stats[$webhook.id]['pending'])}{$stats[$webhook.id]['pending']}{/if}</em>
+                                            <em>Retrying: {if $webhook.retry_enabled|eq(0)}NO{elseif is_set($stats[$webhook.id]['retry'])}{$stats[$webhook.id]['retry']}{else}0{/if}</em>
+                                        {/if}
+                                    </td>
                                     <td>{$webhook.secret|wash()}</td>
                                     <td>
                                         {foreach $webhook.triggers as $trigger}<span style="white-space: nowrap">{$trigger['name']|wash()}</span>{delimiter}<br />{/delimiter}{/foreach}

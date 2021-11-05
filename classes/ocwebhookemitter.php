@@ -45,7 +45,6 @@ class OCWebHookEmitter
             OCWebHookQueue::instance($queueHandlerIdentifier)
                 ->pushJobs($jobs)
                 ->execute();
-
         } else {
             eZDebug::writeError("Trigger $triggerIdentifier not found", __METHOD__);
         }

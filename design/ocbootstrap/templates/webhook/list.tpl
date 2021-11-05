@@ -55,6 +55,8 @@
                         <th width="1"></th>
                         <th width="1"></th>
                         <th width="1"></th>
+                        <th class="text-center" width="1"><i class="fa fa-clock-o"></i></th>
+                        <th class="text-center" width="1"><i class="fa fa-refresh"></i></th>
                     </tr>
                     </thead>
 
@@ -111,6 +113,12 @@
                                         </li>
                                     </ul>
                                 </div>
+                            </td>
+                            <td class="text-center">
+                                {if is_set($stats[$webhook.id]['pending'])}{$stats[$webhook.id]['pending']}{else}0{/if}
+                            </td>
+                            <td class="text-center">
+                                {if $webhook.retry_enabled|eq(0)}NO{elseif is_set($stats[$webhook.id]['retry'])}{$stats[$webhook.id]['retry']}{else}0{/if}
                             </td>
                         </tr>
                     {/foreach}

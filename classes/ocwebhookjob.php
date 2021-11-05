@@ -341,5 +341,4 @@ class OCWebHookJob extends eZPersistentObject
     {
         return OCWebHookFailure::getNextRetryByJob($this);
     }
-
 }

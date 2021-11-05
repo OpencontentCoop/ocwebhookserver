@@ -74,6 +74,7 @@ try {
     $tpl->setVariable('uri', $currentURI);
     $tpl->setVariable('webhook_count', $webHookCount);
     $tpl->setVariable('view_parameters', $Params['UserParameters']);
+    $tpl->setVariable('stats', OCWebHookJobStats::getStats());
 } catch (Exception $e) {
     $tpl->setVariable('error_message', $e->getMessage());
 }
