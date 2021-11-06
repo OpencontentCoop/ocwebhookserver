@@ -106,6 +106,7 @@ class OCWebHookPusher
                         'body' => (string)$response->getBody()
                     ]));
                     $job->setAttribute('response_status', $response->getStatusCode());
+                    ezpEvent::getInstance()->notify('webhook/job/success', [$job->attribute('id')]);
                 } else {
                     /** @var RequestException $reason */
                     $reason = $result['reason'];
@@ -123,6 +124,7 @@ class OCWebHookPusher
                             'error' => $reason->getMessage(),
                         ]));
                     }
+                    ezpEvent::getInstance()->notify('webhook/job/fail', [$job->attribute('id')]);
                 }
 
                 $job->store();
