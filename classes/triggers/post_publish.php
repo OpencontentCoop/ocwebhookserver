@@ -16,7 +16,7 @@ class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
 
     public function getDescription()
     {
-        return 'Is triggered when the post publish workflow is activated and a content is published. The payoload is a OCOpenData API Content object (http://bit.ly/ocopendata-api)';
+        return 'Is triggered when the post publish workflow is activated and a content is published. The payload is a OCOpenData API Content object (http://bit.ly/ocopendata-api)';
     }
 
     public function canBeEnabled()

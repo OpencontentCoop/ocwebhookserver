@@ -3,5 +3,6 @@
 [EventSettings]
 ExtensionDirectories[]=ocwebhookserver
 AvailableEventTypes[]=event_workflowwebhook
+AvailableEventTypes[]=event_deleteworkflowwebhook
 
 */ ?>
