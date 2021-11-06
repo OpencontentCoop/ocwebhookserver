@@ -19,7 +19,11 @@ class OCWebHookTriggerRegistry
             if ($webhookINI->hasVariable('TriggersSettings', 'TriggerList')) {
                 $triggerList = $webhookINI->variable('TriggersSettings', 'TriggerList');
                 foreach ($triggerList as $triggerClassName) {
-                    OCWebHookTriggerRegistry::registerTrigger(new $triggerClassName());
+                    if (class_exists($triggerClassName)){
+                        OCWebHookTriggerRegistry::registerTrigger(new $triggerClassName());
+                    }else{
+                        eZDebug::writeError("Trigger class $triggerClassName not found", __METHOD__);
+                    }
                 }
             }
 
@@ -27,9 +31,13 @@ class OCWebHookTriggerRegistry
                 $triggerFactoryList = $webhookINI->variable('TriggersSettings', 'TriggerFactoryList');
                 foreach ($triggerFactoryList as $triggerFactoryClass) {
                     /** @var OCWebHookTriggerFactoryInterface $triggerFactory */
-                    $triggerFactory = new $triggerFactoryClass();
-                    foreach ($triggerFactory->getTriggers() as $trigger) {
-                        OCWebHookTriggerRegistry::registerTrigger($trigger);
+                    if (class_exists($triggerFactoryClass)) {
+                        $triggerFactory = new $triggerFactoryClass();
+                        foreach ($triggerFactory->getTriggers() as $trigger) {
+                            OCWebHookTriggerRegistry::registerTrigger($trigger);
+                        }
+                    }else{
+                        eZDebug::writeError("Trigger factory class $triggerFactoryClass not found", __METHOD__);
                     }
                 }
             }
