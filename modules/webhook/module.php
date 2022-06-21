@@ -42,5 +42,12 @@ $ViewList['job'] = array(
     'functions' => array('admin'),
     "default_navigation_part" => 'ezsetupnavigationpart',
 );
+$ViewList['metrics'] = array(
+    'script' => 'metrics.php',
+    'params' => array(),
+    'unordered_params' => array(),
+    'functions' => array('metrics'),
+);
 
 $FunctionList['admin'] = array();
+$FunctionList['metrics'] = array();

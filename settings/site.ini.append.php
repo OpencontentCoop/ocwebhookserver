@@ -3,4 +3,7 @@
 [RegionalSettings]
 TranslationExtensions[]=ocwebhookserver
 
+[RoleSettings]
+PolicyOmitList[]=webhook/metrics
+
 */ ?>
