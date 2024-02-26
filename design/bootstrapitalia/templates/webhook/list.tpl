@@ -65,7 +65,7 @@
                             <th>{$webhook.id|wash()}</th>
                             <td>{$webhook.name|wash()}</td>
                             <td>
-                                <dl class="row">
+                                <dl class="row" style="max-width: 600px; overflow-x: auto">
                                     <dt class="col-sm-3">{"Endpoint"|i18n( 'extension/ocwebhookserver' )}:</dt>
                                     <dd class="col-sm-9"><code>{$webhook.method|upcase|wash()} {$webhook.url|urldecode|wash()}</code></dd>
                                     {if $webhook.secret|ne('')}

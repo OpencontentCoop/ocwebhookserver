@@ -155,7 +155,7 @@
                                 <div class="modal fade" id="payloadModal-{$job.id}" tabindex="-1" role="dialog" aria-labelledby="payloadModal-{$job.id}">
                                     <div class="modal-dialog modal-lg" role="document">
                                         <div class="modal-content">
-                                            <pre><code class="json">{$job.serialized_payload|json_encode()|wash()}</code></pre>
+                                            <pre><code class="json">{json_encode($job.serialized_payload)|wash()}</code></pre>
                                         </div>
                                     </div>
                                 </div>

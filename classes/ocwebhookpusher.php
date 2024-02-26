@@ -39,13 +39,11 @@ class OCWebHookPusher
 
         $promises = [];
         foreach ($jobs as $job) {
-
             $jobId = (int)$job->attribute('id');
             $pendingStatus = OCWebHookJob::STATUS_PENDING;
             $runningStatus = OCWebHookJob::STATUS_RUNNING;
             $hostname = gethostname();
             $pid = getmypid();
-
             // simple lock system: update execution_status in running only if yet pending
             $query = "UPDATE ocwebhook_job 
                       SET execution_status = $runningStatus,
@@ -111,7 +109,7 @@ class OCWebHookPusher
                     /** @var RequestException $reason */
                     $reason = $result['reason'];
                     $job->setAttribute('execution_status', OCWebHookJob::STATUS_FAILED);
-                    if ($reason->hasResponse()) {
+                    if ($reason instanceof RequestException && $reason->hasResponse()) {
                         $job->setAttribute('response_headers', json_encode([
                             'endpoint' => $job->getSerializedEndpoint(),
                             'headers' => $reason->getResponse()->getHeaders(),
