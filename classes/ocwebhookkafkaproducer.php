@@ -34,7 +34,17 @@ class OCWebHookKafkaProducer
     private function __construct()
     {
         $ini = eZINI::instance('webhook.ini');
-        $brokers = implode(',', (array)$ini->variableArray('KafkaSettings', 'Brokers'));
+        // variableArray() returns the Brokers[] array from the INI file.
+        // When configured via Docker env vars (EZINI_webhook__KafkaSettings__Brokers_0, _1, ...),
+        // eZ Publish stores them as separate keys Brokers_0, Brokers_1, ... instead of merging
+        // them into the Brokers[] array. We collect both forms.
+        $brokerList = (array)$ini->variableArray('KafkaSettings', 'Brokers');
+        if (empty($brokerList)) {
+            for ($i = 0; $ini->hasVariable('KafkaSettings', 'Brokers_' . $i); $i++) {
+                $brokerList[] = $ini->variable('KafkaSettings', 'Brokers_' . $i);
+            }
+        }
+        $brokers = implode(',', $brokerList);
         $this->topic = $ini->variable('KafkaSettings', 'Topic');
         $this->flushTimeout = (int)$ini->variable('KafkaSettings', 'FlushTimeoutMs');
 
