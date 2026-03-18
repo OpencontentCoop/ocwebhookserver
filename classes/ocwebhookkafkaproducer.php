@@ -21,6 +21,18 @@ class OCWebHookKafkaProducer
     }
 
     /**
+     * Restituisce il prefisso configurato per i webhook di fallback Kafka.
+     * I webhook il cui nome inizia con questo prefisso vengono cancellati
+     * quando il produce diretto su Kafka ha successo, per evitare duplicati.
+     *
+     * @return string
+     */
+    public static function fallbackWebhookPrefix()
+    {
+        return eZINI::instance('webhook.ini')->variable('KafkaSettings', 'FallbackWebhookPrefix');
+    }
+
+    /**
      * @return OCWebHookKafkaProducer
      */
     public static function instance()

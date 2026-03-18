@@ -4,9 +4,11 @@
  * Tests for the outbox pattern in OCWebHookEmitter.
  *
  * Verifies:
- *  1. Kafka path: when produce() succeeds, all jobs are removed (not sent via HTTP)
- *  2. Fallback path: when produce() fails, jobs are kept and pushed to HTTP queue
- *  3. Kafka disabled: jobs are pushed to HTTP queue directly (no produce attempt)
+ *  1. Kafka path: when produce() succeeds, only the kafka-push-* job is removed;
+ *     other HTTP jobs (es. search engine) stay PENDING for the cron.
+ *  2. Fallback path: when produce() fails, ALL jobs stay PENDING and are pushed to HTTP queue.
+ *  3. Kafka disabled: jobs are pushed to HTTP queue directly (no produce attempt).
+ *  4. No webhooks configured: nothing stored, nothing sent.
  *
  * No database or full eZ Publish bootstrap needed — uses spy/stub doubles.
  *
@@ -71,8 +73,12 @@ class FakeKafkaProducer
     public static $produceResult   = true;
     /** @var array */
     public static $calls           = [];
+    /** @var string */
+    public static $prefix          = 'kafka-push-';
 
     public static function isEnabled(): bool { return self::$enabled; }
+
+    public static function fallbackWebhookPrefix(): string { return self::$prefix; }
 
     public static function instance(): self { return new self(); }
 
@@ -87,6 +93,7 @@ class FakeKafkaProducer
         self::$enabled       = true;
         self::$produceResult = true;
         self::$calls         = [];
+        self::$prefix        = 'kafka-push-';
     }
 }
 
@@ -112,8 +119,22 @@ class TestWebHook
 {
     /** @var int */
     private $id;
-    public function __construct($id) { $this->id = $id; }
-    public function attribute($attr) { return $attr === 'id' ? $this->id : null; }
+    /** @var string */
+    private $name;
+
+    public function __construct($id, $name = '')
+    {
+        $this->id   = $id;
+        $this->name = $name ?: 'webhook-' . $id;
+    }
+
+    public function attribute($attr)
+    {
+        if ($attr === 'id')   return $this->id;
+        if ($attr === 'name') return $this->name;
+        return null;
+    }
+
     public function getTriggers() { return []; }
 }
 
@@ -135,21 +156,48 @@ class OCWebHookJob
     private static $spies = [];
     /** @var array */
     private $data;
+    /** @var int */
+    private static $nextId = 1;
+    /** @var int */
+    private $id;
 
-    public function __construct(array $data)      { $this->data = $data; }
+    public function __construct(array $data)
+    {
+        $this->data = $data;
+        $this->id   = null;
+    }
+
     public static function encodePayload($p): string { return json_encode($p); }
 
     public function getSerializedEndpoint(): string
     {
-        // Resolve endpoint from the linked TestWebHook via webhook_id
         return 'https://example.com/hook/' . $this->data['webhook_id'];
     }
 
-    public function store(): void  { self::$spies[] = ['type' => 'store',  'job' => $this]; }
-    public function remove(): void { self::$spies[] = ['type' => 'remove', 'job' => $this]; }
+    public function store(): void
+    {
+        $this->id = self::$nextId++;
+        self::$spies[] = ['type' => 'store', 'job' => $this];
+    }
+
+    public function remove(): void
+    {
+        self::$spies[] = ['type' => 'remove', 'job' => $this, 'id' => $this->id];
+    }
+
+    public function attribute($attr)
+    {
+        if ($attr === 'id') return $this->id;
+        return $this->data[$attr] ?? null;
+    }
 
     public static function getCalls(): array { return self::$spies; }
-    public static function resetCalls(): void { self::$spies = []; }
+
+    public static function resetCalls(): void
+    {
+        self::$spies  = [];
+        self::$nextId = 1;
+    }
 
     public static function storedCount()
     {
@@ -188,11 +236,7 @@ class OCWebHookQueue
 // Load the class under test AFTER stubs are defined
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Temporarily alias FakeKafkaProducer as OCWebHookKafkaProducer
-// We patch the emitter file on-the-fly using a modified copy that uses
-// FakeKafkaProducer instead of OCWebHookKafkaProducer.
-// This avoids modifying the production source code.
-
+// Patch the emitter on-the-fly: replace OCWebHookKafkaProducer with FakeKafkaProducer
 $emitterSource = file_get_contents(__DIR__ . '/../classes/ocwebhookemitter.php');
 $patchedSource = str_replace('OCWebHookKafkaProducer', 'FakeKafkaProducer', $emitterSource);
 eval('?>' . $patchedSource);
@@ -211,8 +255,13 @@ function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : f
 
 function setup(): void
 {
+    // Webhook 1: kafka-push-* (fallback Redpanda Connect)
+    // Webhook 2: HTTP generico (es. motore di ricerca)
     OCWebHookTriggerRegistry::$trigger = new TestTrigger();
-    OCWebHook::$hooks                  = [new TestWebHook(1), new TestWebHook(2)];
+    OCWebHook::$hooks                  = [
+        new TestWebHook(1, 'kafka-push-42'),
+        new TestWebHook(2, 'search-engine'),
+    ];
     OCWebHookQueue::$spy               = new SpyQueue();
     OCWebHookJob::resetCalls();
     FakeKafkaProducer::reset();
@@ -220,7 +269,8 @@ function setup(): void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 1: Kafka path — produce succeeds → jobs removed, HTTP queue NOT called
+// TEST 1: Kafka path — produce succeeds → solo il job kafka-push-* rimosso,
+//         il job HTTP resta PENDING per il cron
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
@@ -229,17 +279,18 @@ FakeKafkaProducer::$produceResult = true;
 
 OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
 
-assert_eq(OCWebHookJob::storedCount(),   2, 'Kafka path: 2 jobs written to DB (outbox)');
-assert_eq(OCWebHookJob::removedCount(),  2, 'Kafka path: both jobs removed after Kafka ack');
-assert_true(!OCWebHookQueue::$spy->pushJobsCalled, 'Kafka path: HTTP queue NOT invoked');
-assert_true(!OCWebHookQueue::$spy->executeCalled,  'Kafka path: HTTP execute NOT invoked');
+assert_eq(OCWebHookJob::storedCount(),  2, 'Kafka path: 2 jobs scritti in DB (outbox)');
+assert_eq(OCWebHookJob::removedCount(), 1, 'Kafka path: solo il job kafka-push-* rimosso');
+assert_true(!OCWebHookQueue::$spy->pushJobsCalled, 'Kafka path: HTTP queue NOT invocata');
+assert_true(!OCWebHookQueue::$spy->executeCalled,  'Kafka path: HTTP execute NOT invocato');
 
 $calls = FakeKafkaProducer::$calls;
-assert_eq(count($calls), 1, 'Kafka path: produce() called exactly once');
-assert_eq($calls[0]['trigger'] ?? null, 'post_publish', 'Kafka path: trigger key is post_publish');
+assert_eq(count($calls), 1, 'Kafka path: produce() chiamato esattamente una volta');
+assert_eq($calls[0]['trigger'] ?? null, 'post_publish', 'Kafka path: trigger key corretto');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 2: Fallback path — produce fails → jobs PENDING, HTTP queue called
+// TEST 2: Fallback path — produce fails → TUTTI i job restano PENDING,
+//         incluso kafka-push-*, e vengono passati alla coda HTTP
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
@@ -248,14 +299,14 @@ FakeKafkaProducer::$produceResult = false;   // Kafka down
 
 OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
 
-assert_eq(OCWebHookJob::storedCount(),  2, 'Fallback path: 2 jobs written to DB (outbox)');
-assert_eq(OCWebHookJob::removedCount(), 0, 'Fallback path: NO jobs removed (stay PENDING)');
-assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Fallback path: HTTP queue.pushJobs() called');
-assert_true(OCWebHookQueue::$spy->executeCalled,  'Fallback path: HTTP queue.execute() called');
-assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Fallback path: both jobs passed to HTTP queue');
+assert_eq(OCWebHookJob::storedCount(),  2, 'Fallback path: 2 jobs scritti in DB');
+assert_eq(OCWebHookJob::removedCount(), 0, 'Fallback path: nessun job rimosso (restano PENDING)');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Fallback path: HTTP queue.pushJobs() chiamato');
+assert_true(OCWebHookQueue::$spy->executeCalled,  'Fallback path: HTTP queue.execute() chiamato');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Fallback path: entrambi i job passati alla coda');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 3: Kafka disabled → HTTP path directly, produce() never called
+// TEST 3: Kafka disabled → HTTP path diretto, produce() mai chiamato
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
@@ -263,24 +314,22 @@ FakeKafkaProducer::$enabled = false;
 
 OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
 
-assert_eq(OCWebHookJob::storedCount(),  2, 'Kafka disabled: jobs written to DB');
-assert_eq(count(FakeKafkaProducer::$calls), 0, 'Kafka disabled: produce() never called');
-assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Kafka disabled: HTTP queue.pushJobs() called');
+assert_eq(OCWebHookJob::storedCount(),         2, 'Kafka disabled: jobs scritti in DB');
+assert_eq(count(FakeKafkaProducer::$calls),    0, 'Kafka disabled: produce() mai chiamato');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Kafka disabled: HTTP queue.pushJobs() chiamato');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Kafka disabled: entrambi i job alla coda HTTP');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 4: No webhooks configured → nothing stored, nothing sent
+// TEST 4: Nessun webhook configurato → niente creato, niente inviato
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
-OCWebHook::$hooks = [];  // no webhooks registered for this trigger
+OCWebHook::$hooks = [];
 
 OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
 
-assert_eq(OCWebHookJob::storedCount(), 0,  'No webhooks: no jobs created');
-assert_eq(count(FakeKafkaProducer::$calls), 0, 'No webhooks: produce() not called (count($jobs)=0)');
-// The HTTP queue is called with an empty job list — this is the current behaviour.
-// The queue implementation is expected to handle an empty array gracefully.
-assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'No webhooks: HTTP queue called with empty jobs array');
+assert_eq(OCWebHookJob::storedCount(),      0, 'No webhooks: nessun job creato');
+assert_eq(count(FakeKafkaProducer::$calls), 0, 'No webhooks: produce() non chiamato');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results

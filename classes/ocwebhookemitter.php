@@ -31,41 +31,56 @@ class OCWebHookEmitter
             }
         }
 
-        $jobs = [];
+        // ── OUTBOX ──────────────────────────────────────────────────────────
+        // Tutti i job vengono scritti in DB come PENDING prima di tentare Kafka.
+        // I webhook il cui nome inizia con FallbackWebhookPrefix sono il job di
+        // fallback verso Redpanda Connect: vengono cancellati se Kafka ha successo.
+        // Gli altri job HTTP (es. motore di ricerca) restano PENDING e vengono
+        // eseguiti dal cron indipendentemente dall'esito di Kafka.
+        $kafkaFallbackJob = null;
+        $httpJobs = [];
+        $kafkaPrefix = OCWebHookKafkaProducer::isEnabled()
+            ? OCWebHookKafkaProducer::fallbackWebhookPrefix()
+            : null;
+
         foreach ($webHooks as $webHook) {
             $job = new OCWebHookJob([
                 'webhook_id'         => $webHook->attribute('id'),
                 'trigger_identifier' => $trigger->getIdentifier(),
                 'payload'            => OCWebHookJob::encodePayload($payload),
             ]);
-            if (filter_var($job->getSerializedEndpoint(), FILTER_VALIDATE_URL)) {
-                $job->store();
-                $jobs[] = $job;
-            } else {
+            if (!filter_var($job->getSerializedEndpoint(), FILTER_VALIDATE_URL)) {
                 eZDebug::writeError("Invalid endpoint url: " . $job->getSerializedEndpoint(), __METHOD__);
+                continue;
+            }
+            $job->store();
+            // Dopo store() il job ha l'ID assegnato dal DB
+            if ($kafkaPrefix !== null && strpos($webHook->attribute('name'), $kafkaPrefix) === 0) {
+                $kafkaFallbackJob = $job;
+            } else {
+                $httpJobs[] = $job;
             }
         }
 
         // ── KAFKA PATH ──────────────────────────────────────────────────────
-        // I job sono già scritti in DB come outbox (PENDING).
-        // Se Kafka conferma la ricezione (acks=all), i job vengono cancellati
-        // e non arriveranno mai al worker HTTP.
-        // Se Kafka fallisce o va in timeout, i job rimangono PENDING e il
-        // worker HTTP li esegue come fallback.
-        if (OCWebHookKafkaProducer::isEnabled() && count($jobs) > 0) {
+        // Se Kafka conferma la ricezione (acks=all), viene cancellato solo il
+        // job di fallback Redpanda Connect (kafka-push-*), non gli altri job HTTP.
+        // Se Kafka fallisce o va in timeout, anche il job di fallback resta
+        // PENDING e verrà eseguito dal cron insieme agli altri.
+        if ($kafkaFallbackJob !== null) {
             $sent = OCWebHookKafkaProducer::instance()->produce($trigger->getIdentifier(), $payload);
             if ($sent) {
-                foreach ($jobs as $job) {
-                    $job->remove();
-                }
+                $kafkaFallbackJob->remove();
                 return;
             }
+            // Kafka fallito: il job di fallback torna in coda con gli altri
+            $httpJobs[] = $kafkaFallbackJob;
         }
 
         // ── HTTP PATH ───────────────────────────────────────────────────────
         // Eseguito quando Kafka è disabilitato o quando il produce è fallito.
         OCWebHookQueue::instance($queueHandlerIdentifier)
-            ->pushJobs($jobs)
+            ->pushJobs($httpJobs)
             ->execute();
     }
 }
