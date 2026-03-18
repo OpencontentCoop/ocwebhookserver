@@ -22,18 +22,31 @@ if (getenv('SKIP_KAFKA') === '1') {
     $testFiles = array_filter($testFiles, function($f) { return strpos($f, 'KafkaProducerTest') === false; });
 }
 
-$allPassed = true;
+$allPassed  = true;
+$totalPass  = 0;
+$totalFail  = 0;
+
 foreach ($testFiles as $file) {
     $name = basename($file);
     echo "\n" . str_repeat('═', 50) . "\n";
     echo "Running: $name\n";
     echo str_repeat('─', 50) . "\n";
 
-    $output    = [];
-    $exitCode  = 0;
+    $output   = [];
+    $exitCode = 0;
     exec('php ' . escapeshellarg($file) . ' 2>&1', $output, $exitCode);
 
     echo implode("\n", $output) . "\n";
+
+    // Collect per-suite totals from "Results: N passed[, M failed]" line
+    foreach ($output as $line) {
+        if (preg_match('/(\d+) passed/', $line, $m)) {
+            $totalPass += (int)$m[1];
+        }
+        if (preg_match('/(\d+) failed/', $line, $m)) {
+            $totalFail += (int)$m[1];
+        }
+    }
 
     if ($exitCode !== 0) {
         $allPassed = false;
@@ -43,9 +56,15 @@ foreach ($testFiles as $file) {
     }
 }
 
+$total = $totalPass + $totalFail;
+$pct   = $total > 0 ? round($totalPass / $total * 100, 1) : 0.0;
+
 echo "\n" . str_repeat('═', 50) . "\n";
 echo $allPassed
     ? "\033[32m✓ All test suites passed\033[0m\n"
     : "\033[31m✗ One or more test suites FAILED\033[0m\n";
+
+// Riga catturata dal regex coverage: in .gitlab-ci.yml
+echo "Tests passed: {$pct}%\n";
 
 exit($allPassed ? 0 : 1);
