@@ -13,6 +13,7 @@
  */
 
 $testFiles = [
+    __DIR__ . '/PayloadFormatterTest.php',
     __DIR__ . '/EmitterOutboxTest.php',
     __DIR__ . '/KafkaProducerTest.php',
 ];

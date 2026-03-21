@@ -46,4 +46,9 @@ class DeleteWebHookTrigger implements OCWebHookTriggerInterface
         return true;
     }
 
+    public function getQueueHandler()
+    {
+        return OCWebHookQueue::HANDLER_SCHEDULED;
+    }
+
 }

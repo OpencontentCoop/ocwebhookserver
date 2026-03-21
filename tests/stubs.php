@@ -43,6 +43,21 @@ class eZINI
         $val = self::$data[$this->file][$section][$key] ?? [];
         return (array)$val;
     }
+
+    public function hasVariable(string $section, string $key): bool
+    {
+        return isset(self::$data[$this->file][$section][$key]);
+    }
+
+    public function hasGroup(string $section): bool
+    {
+        return isset(self::$data[$this->file][$section]);
+    }
+
+    public function group(string $section): array
+    {
+        return self::$data[$this->file][$section] ?? [];
+    }
 }
 
 // ── eZDebug stub ─────────────────────────────────────────────────────────────

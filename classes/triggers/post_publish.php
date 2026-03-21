@@ -46,4 +46,9 @@ class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
         return true;
     }
 
+    public function getQueueHandler()
+    {
+        return OCWebHookQueue::HANDLER_IMMEDIATE;
+    }
+
 }

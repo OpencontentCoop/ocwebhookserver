@@ -45,11 +45,11 @@ class OCWebHookPusher
             $hostname = gethostname();
             $pid = getmypid();
             // simple lock system: update execution_status in running only if yet pending
-            $query = "UPDATE ocwebhook_job 
+            $query = "UPDATE ocwebhook_job
                       SET execution_status = $runningStatus,
                           hostname = '$hostname',
                           pid = '$pid'
-                      WHERE id = $jobId 
+                      WHERE id = $jobId
                         AND execution_status = $pendingStatus";
             $result = $db->query($query);
             if ($databaseImplementation == 'ezpostgresql') {
@@ -61,6 +61,42 @@ class OCWebHookPusher
             }
 
             if ($isProcessable) {
+                $endpoint = $job->getSerializedEndpoint();
+
+                if (strpos($endpoint, 'kafka://') === 0) {
+                    // kafka://broker1:9092,broker2:9092/topic
+                    $withoutScheme = substr($endpoint, strlen('kafka://'));
+                    $slashPos = strpos($withoutScheme, '/');
+                    $brokers = $slashPos !== false ? substr($withoutScheme, 0, $slashPos) : $withoutScheme;
+                    $topic = $slashPos !== false ? substr($withoutScheme, $slashPos + 1) : '';
+
+                    $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
+                    $sent = $kafkaProducer->produce(
+                        $job->attribute('trigger_identifier'),
+                        $job->getSerializedPayload()
+                    );
+
+                    $job = OCWebHookJob::fetch($jobId);
+                    $job->setAttribute('executed_at', time());
+                    if ($sent) {
+                        $job->setAttribute('execution_status', OCWebHookJob::STATUS_DONE);
+                        $job->setAttribute('response_headers', json_encode([
+                            'endpoint' => $endpoint,
+                        ]));
+                        $job->setAttribute('response_status', 0);
+                        ezpEvent::getInstance()->notify('webhook/job/success', [$job->attribute('id')]);
+                    } else {
+                        $job->setAttribute('execution_status', OCWebHookJob::STATUS_FAILED);
+                        $job->setAttribute('response_headers', json_encode([
+                            'endpoint' => $endpoint,
+                            'error' => 'Kafka produce failed',
+                        ]));
+                        ezpEvent::getInstance()->notify('webhook/job/fail', [$job->attribute('id')]);
+                    }
+                    $job->store();
+                    $job->registerRetryIfNeeded();
+                    continue;
+                }
 
                 $client = new Client();
 
@@ -77,7 +113,7 @@ class OCWebHookPusher
 
                 $promises[$job->attribute('id')] = $client->requestAsync(
                     strtoupper($webHook->attribute('method')),
-                    $job->getSerializedEndpoint(),
+                    $endpoint,
                     [
                         'timeout' => $this->requestTimeout,
                         'verify' => $this->verifySsl,

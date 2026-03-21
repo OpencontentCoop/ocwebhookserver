@@ -2,8 +2,6 @@
 
 class OCWebHookKafkaProducer
 {
-    private static $instance = null;
-
     /** @var RdKafka\Producer */
     private $producer;
 
@@ -21,53 +19,14 @@ class OCWebHookKafkaProducer
 
     private $ceTypeMap;
 
-    public static function isEnabled()
-    {
-        if (!extension_loaded('rdkafka')) {
-            return false;
-        }
-        $ini = eZINI::instance('webhook.ini');
-        return $ini->variable('KafkaSettings', 'Enabled') === 'enabled';
-    }
-
     /**
-     * Restituisce il prefisso configurato per i webhook di fallback Kafka.
-     * I webhook il cui nome inizia con questo prefisso vengono cancellati
-     * quando il produce diretto su Kafka ha successo, per evitare duplicati.
-     *
-     * @return string
+     * @param string $brokers Comma-separated list of brokers (e.g. "broker1:9092,broker2:9092")
+     * @param string $topic   Kafka topic name
      */
-    public static function fallbackWebhookPrefix()
-    {
-        return eZINI::instance('webhook.ini')->variable('KafkaSettings', 'FallbackWebhookPrefix');
-    }
-
-    /**
-     * @return OCWebHookKafkaProducer
-     */
-    public static function instance()
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    private function __construct()
+    public function __construct($brokers, $topic)
     {
         $ini = eZINI::instance('webhook.ini');
-        // variableArray() returns the Brokers[] array from the INI file.
-        // When configured via Docker env vars (EZINI_webhook__KafkaSettings__Brokers_0, _1, ...),
-        // eZ Publish stores them as separate keys Brokers_0, Brokers_1, ... instead of merging
-        // them into the Brokers[] array. We collect both forms.
-        $brokerList = (array)$ini->variableArray('KafkaSettings', 'Brokers');
-        if (empty($brokerList)) {
-            for ($i = 0; $ini->hasVariable('KafkaSettings', 'Brokers_' . $i); $i++) {
-                $brokerList[] = $ini->variable('KafkaSettings', 'Brokers_' . $i);
-            }
-        }
-        $brokers = implode(',', $brokerList);
-        $this->topic = $ini->variable('KafkaSettings', 'Topic');
+        $this->topic = $topic;
         $this->flushTimeout = (int)$ini->variable('KafkaSettings', 'FlushTimeoutMs');
         $this->tenantId = $ini->variable('KafkaSettings', 'TenantId');
         $this->productSlug = $ini->variable('KafkaSettings', 'ProductSlug');

@@ -1,0 +1,205 @@
+<?php
+
+/**
+ * Unit tests for OCWebHookKafkaPayloadFormatter.
+ *
+ * Verifies conversion from ocopendata format to the canonical
+ * OpenCity Kafka entity event format { entity: { meta, data } }.
+ *
+ * No eZ Publish bootstrap or broker needed.
+ *
+ * Usage:
+ *   php tests/PayloadFormatterTest.php
+ */
+
+require_once __DIR__ . '/../classes/ocwebhookkafkapayloadformatter.php';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+$PASSED = 0;
+$FAILED = 0;
+
+function ok(string $name): void    { global $PASSED; $PASSED++; echo "\033[32m[PASS]\033[0m $name\n"; }
+function fail(string $name, string $r = ''): void { global $FAILED; $FAILED++; echo "\033[31m[FAIL]\033[0m $name" . ($r ? " — $r" : '') . "\n"; }
+function assert_eq($a, $b, string $t, string $r = ''): void
+{
+    if ($a === $b) {
+        ok($t);
+    } else {
+        fail($t, sprintf("expected %s, got %s. %s", var_export($b, true), var_export($a, true), $r));
+    }
+}
+function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : fail($t, $r); }
+function assert_null($v, string $t): void { $v === null ? ok($t) : fail($t, "expected null, got " . var_export($v, true)); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixtures
+// ─────────────────────────────────────────────────────────────────────────────
+
+$publishedTs  = mktime(10, 0, 0, 3, 15, 2026);  // 2026-03-15T10:00:00
+$modifiedTs   = mktime(11, 30, 0, 3, 20, 2026); // 2026-03-20T11:30:00
+
+$ocPayload = [
+    'metadata' => [
+        'id'               => '42',
+        'currentVersion'   => '3',
+        'remoteId'         => 'abc123remote',
+        'classIdentifier'  => 'article',
+        'name'             => ['it-IT' => 'Titolo notizia', 'eng-GB' => 'News title'],
+        'languages'        => ['it-IT', 'eng-GB'],
+        'mainNodeId'       => '88',
+        'parentNodes'      => ['88', '90'],
+        'assignedNodes'    => ['88'],
+        'published'        => (string)$publishedTs,
+        'modified'         => (string)$modifiedTs,
+        'baseUrl'          => 'https://www.comune.example.it',
+    ],
+    'data' => [
+        'it-IT' => [
+            'title'    => ['content' => 'Titolo notizia', 'type' => 'string'],
+            'abstract' => ['content' => 'Abstract della notizia', 'type' => 'string'],
+            'body'     => ['content' => '<p>Corpo testo</p>', 'type' => 'string'],
+            'image'    => ['content' => null, 'type' => 'image'],
+        ],
+        'eng-GB' => [
+            'title'    => ['content' => 'News title', 'type' => 'string'],
+            'abstract' => ['content' => 'News abstract', 'type' => 'string'],
+            'body'     => ['content' => '<p>Body text</p>', 'type' => 'string'],
+            'image'    => ['content' => null, 'type' => 'image'],
+        ],
+    ],
+    'extradata' => [],
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 1: Top-level structure
+// ─────────────────────────────────────────────────────────────────────────────
+
+$formatter = new OCWebHookKafkaPayloadFormatter('comune_it');
+$result    = $formatter->format($ocPayload);
+
+assert_true(
+    isset($result['entity']),
+    'Top-level key "entity" exists'
+);
+assert_true(
+    isset($result['entity']['meta']),
+    'entity.meta exists'
+);
+assert_true(
+    isset($result['entity']['data']),
+    'entity.data exists'
+);
+assert_true(
+    !isset($result['metadata']),
+    'Raw "metadata" key not present in output'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 2: entity.meta fields
+// ─────────────────────────────────────────────────────────────────────────────
+
+$meta = $result['entity']['meta'];
+
+assert_eq($meta['id'],         'comune_it:42', 'entity.meta.id = "<siteaccess>:<object_id>"');
+assert_eq($meta['siteaccess'], 'comune_it',    'entity.meta.siteaccess');
+assert_eq($meta['object_id'],  '42',           'entity.meta.object_id');
+assert_eq($meta['remote_id'],  'abc123remote', 'entity.meta.remote_id');
+assert_eq($meta['type_id'],    'article',      'entity.meta.type_id');
+assert_eq($meta['version'],    3,              'entity.meta.version (cast to int)');
+assert_eq($meta['languages'],  ['it-IT', 'eng-GB'], 'entity.meta.languages');
+assert_eq($meta['name'],       'Titolo notizia',    'entity.meta.name (primary language)');
+assert_eq($meta['site_url'],   'https://www.comune.example.it', 'entity.meta.site_url');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 3: entity.meta timestamps as ISO 8601
+// ─────────────────────────────────────────────────────────────────────────────
+
+assert_eq(
+    $meta['published_at'],
+    date('c', $publishedTs),
+    'entity.meta.published_at is ISO 8601'
+);
+assert_eq(
+    $meta['updated_at'],
+    date('c', $modifiedTs),
+    'entity.meta.updated_at is ISO 8601'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 4: entity.data — attribute content extracted per language
+// ─────────────────────────────────────────────────────────────────────────────
+
+$data = $result['entity']['data'];
+
+assert_true(
+    isset($data['it-IT']) && isset($data['eng-GB']),
+    'entity.data has both languages'
+);
+assert_eq($data['it-IT']['title'],    'Titolo notizia',         'it-IT title content extracted');
+assert_eq($data['it-IT']['abstract'], 'Abstract della notizia', 'it-IT abstract content extracted');
+assert_eq($data['it-IT']['body'],     '<p>Corpo testo</p>',     'it-IT body content extracted');
+assert_null($data['it-IT']['image'],                            'it-IT null image content preserved');
+assert_eq($data['eng-GB']['title'],   'News title',             'eng-GB title content extracted');
+
+assert_true(
+    !isset($data['it-IT']['type']),
+    '"type" metadata key not propagated to entity.data'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 5: siteaccess in id
+// ─────────────────────────────────────────────────────────────────────────────
+
+$formatter2 = new OCWebHookKafkaPayloadFormatter('pat_pub');
+$result2    = $formatter2->format($ocPayload);
+
+assert_eq(
+    $result2['entity']['meta']['id'],
+    'pat_pub:42',
+    'Different siteaccess used in entity.meta.id'
+);
+assert_eq(
+    $result2['entity']['meta']['siteaccess'],
+    'pat_pub',
+    'Different siteaccess stored in entity.meta.siteaccess'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 6: Missing/null metadata fields handled gracefully
+// ─────────────────────────────────────────────────────────────────────────────
+
+$minimalPayload = [
+    'metadata' => ['id' => '99'],
+    'data'     => [],
+];
+
+$formatter3 = new OCWebHookKafkaPayloadFormatter('test_sa');
+$result3    = $formatter3->format($minimalPayload);
+$meta3      = $result3['entity']['meta'];
+
+assert_eq($meta3['id'],         'test_sa:99', 'Minimal: id constructed correctly');
+assert_null($meta3['remote_id'],              'Minimal: remote_id is null when missing');
+assert_null($meta3['type_id'],                'Minimal: type_id is null when missing');
+assert_null($meta3['version'],                'Minimal: version is null when missing');
+assert_null($meta3['published_at'],           'Minimal: published_at is null when missing');
+assert_null($meta3['updated_at'],             'Minimal: updated_at is null when missing');
+assert_eq($meta3['languages'],  [],           'Minimal: languages is empty array');
+assert_eq($meta3['name'],       '',           'Minimal: name is empty string when missing');
+assert_eq($result3['entity']['data'], [],     'Minimal: entity.data is empty array');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Results
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n";
+echo str_repeat('─', 50) . "\n";
+echo "Results: \033[32m{$PASSED} passed\033[0m";
+if ($FAILED > 0) {
+    echo ", \033[31m{$FAILED} failed\033[0m";
+}
+echo "\n";
+
+exit($FAILED > 0 ? 1 : 0);

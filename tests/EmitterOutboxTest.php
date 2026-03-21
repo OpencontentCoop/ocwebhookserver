@@ -1,14 +1,15 @@
 <?php
 
 /**
- * Tests for the outbox pattern in OCWebHookEmitter.
+ * Tests for OCWebHookEmitter — outbox pattern behaviour.
  *
- * Verifies:
- *  1. Kafka path: when produce() succeeds, only the kafka-push-* job is removed;
- *     other HTTP jobs (es. search engine) stay PENDING for the cron.
- *  2. Fallback path: when produce() fails, ALL jobs stay PENDING and are pushed to HTTP queue.
- *  3. Kafka disabled: jobs are pushed to HTTP queue directly (no produce attempt).
- *  4. No webhooks configured: nothing stored, nothing sent.
+ * Verifies that the emitter:
+ *  1. Creates one job per webhook, stores each to DB (PENDING), then passes all
+ *     to OCWebHookQueue (the queue decides when / how to execute).
+ *  2. Accepts kafka:// endpoints (bypasses filter_var URL validation).
+ *  3. Rejects invalid (non-kafka, non-http) endpoints and writes a debug error.
+ *  4. Does nothing when no webhooks are configured.
+ *  5. Does nothing when the trigger is unknown.
  *
  * No database or full eZ Publish bootstrap needed — uses spy/stub doubles.
  *
@@ -19,37 +20,14 @@
 require_once __DIR__ . '/stubs.php';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spy doubles — minimal implementations that record what was called
+// Spy doubles
 // ─────────────────────────────────────────────────────────────────────────────
-
-class SpyJob
-{
-    /** @var bool */
-    public $stored  = false;
-    /** @var bool */
-    public $removed = false;
-    /** @var string */
-    private $endpoint;
-
-    public function __construct(string $endpoint = 'https://example.com/hook')
-    {
-        $this->endpoint = $endpoint;
-    }
-
-    public function store(): void  { $this->stored  = true; }
-    public function remove(): void { $this->removed = true; }
-    public function getSerializedEndpoint(): string { return $this->endpoint; }
-    public static function encodePayload($payload): string { return json_encode($payload); }
-}
 
 class SpyQueue
 {
-    /** @var bool */
-    public $pushJobsCalled  = false;
-    /** @var bool */
-    public $executeCalled   = false;
-    /** @var array */
-    public $receivedJobs    = [];
+    public $pushJobsCalled = false;
+    public $executeCalled  = false;
+    public $receivedJobs   = [];
 
     public function pushJobs(array $jobs): self
     {
@@ -62,43 +40,7 @@ class SpyQueue
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Controllable producer stub (replaces OCWebHookKafkaProducer)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class FakeKafkaProducer
-{
-    /** @var bool */
-    public static $enabled         = true;
-    /** @var bool */
-    public static $produceResult   = true;
-    /** @var array */
-    public static $calls           = [];
-    /** @var string */
-    public static $prefix          = 'kafka-push-';
-
-    public static function isEnabled(): bool { return self::$enabled; }
-
-    public static function fallbackWebhookPrefix(): string { return self::$prefix; }
-
-    public static function instance(): self { return new self(); }
-
-    public function produce(string $trigger, $payload): bool
-    {
-        self::$calls[] = ['trigger' => $trigger, 'payload' => $payload];
-        return self::$produceResult;
-    }
-
-    public static function reset(): void
-    {
-        self::$enabled       = true;
-        self::$produceResult = true;
-        self::$calls         = [];
-        self::$prefix        = 'kafka-push-';
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Minimal implementations of eZ static dependencies used by OCWebHookEmitter
+// eZ static class stubs used by OCWebHookEmitter
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface OCWebHookTriggerInterface
@@ -110,56 +52,58 @@ interface OCWebHookTriggerInterface
 
 class TestTrigger implements OCWebHookTriggerInterface
 {
-    public function getIdentifier(): string   { return 'post_publish'; }
-    public function useFilter(): bool          { return false; }
-    public function isValidPayload($p, $f): bool { return true; }
+    public function getIdentifier(): string          { return 'post_publish'; }
+    public function useFilter(): bool                { return false; }
+    public function isValidPayload($p, $f): bool     { return true; }
 }
 
+/**
+ * Stub webhook: the endpoint URL is configurable so we can test http://, kafka://, invalid.
+ */
 class TestWebHook
 {
     /** @var int */
     private $id;
     /** @var string */
     private $name;
+    /** @var string */
+    private $url;
 
-    public function __construct($id, $name = '')
+    public function __construct($id, $name = '', $url = 'https://example.com/hook')
     {
         $this->id   = $id;
         $this->name = $name ?: 'webhook-' . $id;
+        $this->url  = $url;
     }
 
     public function attribute($attr)
     {
         if ($attr === 'id')   return $this->id;
         if ($attr === 'name') return $this->name;
+        if ($attr === 'url')  return $this->url;
         return null;
     }
 
-    public function getTriggers() { return []; }
+    public function getTriggers(): array { return []; }
 }
 
-// Static class stubs used inside OCWebHookEmitter
-class OCWebHookTriggerRegistry
-{
-    /** @var OCWebHookTriggerInterface|null */
-    public static $trigger = null;
-
-    public static function registeredTrigger(string $id)
-    {
-        return self::$trigger;
-    }
-}
-
+/**
+ * Minimal job spy: records store/remove calls, returns the webhook URL as endpoint.
+ *
+ * The emitter constructs jobs with ['webhook_id' => $id, ...] then calls
+ * $job->getSerializedEndpoint(). We satisfy that by looking up the URL in
+ * TestWebHookRegistry::$registry.
+ */
 class OCWebHookJob
 {
-    /** @var array */
-    private static $spies = [];
-    /** @var array */
-    private $data;
+    /** @var array  Records store/remove events for assertion */
+    private static $log = [];
     /** @var int */
     private static $nextId = 1;
     /** @var int */
     private $id;
+    /** @var array */
+    private $data;
 
     public function __construct(array $data)
     {
@@ -167,22 +111,23 @@ class OCWebHookJob
         $this->id   = null;
     }
 
-    public static function encodePayload($p): string { return json_encode($p); }
+    public static function encodePayload($payload): string { return json_encode($payload); }
 
     public function getSerializedEndpoint(): string
     {
-        return 'https://example.com/hook/' . $this->data['webhook_id'];
+        $webhookId = $this->data['webhook_id'] ?? 0;
+        return TestWebHookRegistry::endpointFor($webhookId);
     }
 
     public function store(): void
     {
-        $this->id = self::$nextId++;
-        self::$spies[] = ['type' => 'store', 'job' => $this];
+        $this->id    = self::$nextId++;
+        self::$log[] = ['event' => 'store', 'job' => $this];
     }
 
     public function remove(): void
     {
-        self::$spies[] = ['type' => 'remove', 'job' => $this, 'id' => $this->id];
+        self::$log[] = ['event' => 'remove', 'id' => $this->id];
     }
 
     public function attribute($attr)
@@ -191,22 +136,44 @@ class OCWebHookJob
         return $this->data[$attr] ?? null;
     }
 
-    public static function getCalls(): array { return self::$spies; }
+    // ── log inspection helpers ────────────────────────────────────────────────
 
-    public static function resetCalls(): void
+    public static function storedCount(): int
     {
-        self::$spies  = [];
+        return count(array_filter(self::$log, function($e) { return $e['event'] === 'store'; }));
+    }
+
+    public static function removedCount(): int
+    {
+        return count(array_filter(self::$log, function($e) { return $e['event'] === 'remove'; }));
+    }
+
+    public static function resetLog(): void
+    {
+        self::$log    = [];
         self::$nextId = 1;
     }
+}
 
-    public static function storedCount()
+class TestWebHookRegistry
+{
+    /** @var array<int,string> webhook_id → endpoint URL */
+    public static $registry = [];
+
+    public static function endpointFor(int $id): string
     {
-        return count(array_filter(self::$spies, function($s) { return $s['type'] === 'store'; }));
+        return self::$registry[$id] ?? ('https://example.com/hook/' . $id);
     }
+}
 
-    public static function removedCount()
+class OCWebHookTriggerRegistry
+{
+    /** @var OCWebHookTriggerInterface|null */
+    public static $trigger = null;
+
+    public static function registeredTrigger(string $id)
     {
-        return count(array_filter(self::$spies, function($s) { return $s['type'] === 'remove'; }));
+        return self::$trigger;
     }
 }
 
@@ -226,20 +193,17 @@ class OCWebHookQueue
     /** @var SpyQueue */
     public static $spy;
 
-    public static function instance(string $handler)
+    public static function instance(string $handler): SpyQueue
     {
         return self::$spy;
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Load the class under test AFTER stubs are defined
+// Load the class under test
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Patch the emitter on-the-fly: replace OCWebHookKafkaProducer with FakeKafkaProducer
-$emitterSource = file_get_contents(__DIR__ . '/../classes/ocwebhookemitter.php');
-$patchedSource = str_replace('OCWebHookKafkaProducer', 'FakeKafkaProducer', $emitterSource);
-eval('?>' . $patchedSource);
+require_once __DIR__ . '/../classes/ocwebhookemitter.php';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test helpers
@@ -248,88 +212,117 @@ eval('?>' . $patchedSource);
 $PASSED = 0;
 $FAILED = 0;
 
-function ok(string $name): void    { global $PASSED; $PASSED++; echo "\033[32m[PASS]\033[0m $name\n"; }
+function ok(string $name): void   { global $PASSED; $PASSED++; echo "\033[32m[PASS]\033[0m $name\n"; }
 function fail(string $name, string $r = ''): void { global $FAILED; $FAILED++; echo "\033[31m[FAIL]\033[0m $name" . ($r ? " — $r" : '') . "\n"; }
-function assert_eq($a, $b, string $t, string $r = ''): void { $a === $b ? ok($t) : fail($t, "expected $b, got $a. $r"); }
-function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : fail($t, $r); }
+function assert_eq($a, $b, string $t, string $r = ''): void
+{
+    if ($a === $b) {
+        ok($t);
+    } else {
+        fail($t, sprintf("expected %s, got %s. %s", var_export($b, true), var_export($a, true), $r));
+    }
+}
+function assert_true(bool $v, string $t, string $r = ''): void  { $v ? ok($t) : fail($t, $r); }
+function assert_false(bool $v, string $t, string $r = ''): void { (!$v) ? ok($t) : fail($t, $r); }
 
 function setup(): void
 {
-    // Webhook 1: kafka-push-* (fallback Redpanda Connect)
-    // Webhook 2: HTTP generico (es. motore di ricerca)
-    OCWebHookTriggerRegistry::$trigger = new TestTrigger();
-    OCWebHook::$hooks                  = [
-        new TestWebHook(1, 'kafka-push-42'),
-        new TestWebHook(2, 'search-engine'),
-    ];
-    OCWebHookQueue::$spy               = new SpyQueue();
-    OCWebHookJob::resetCalls();
-    FakeKafkaProducer::reset();
+    OCWebHookTriggerRegistry::$trigger  = new TestTrigger();
+    OCWebHookQueue::$spy                = new SpyQueue();
+    TestWebHookRegistry::$registry      = [];
+    OCWebHookJob::resetLog();
     eZDebug::reset();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 1: Kafka path — produce succeeds → solo il job kafka-push-* rimosso,
-//         il job HTTP resta PENDING per il cron
+// TEST 1: Two HTTP webhooks → 2 jobs stored, both passed to queue
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
-FakeKafkaProducer::$enabled       = true;
-FakeKafkaProducer::$produceResult = true;
+OCWebHook::$hooks = [
+    new TestWebHook(1, 'search-engine',  'https://search.example.com/hook'),
+    new TestWebHook(2, 'analytics-push', 'https://analytics.example.com/hook'),
+];
+TestWebHookRegistry::$registry = [
+    1 => 'https://search.example.com/hook',
+    2 => 'https://analytics.example.com/hook',
+];
 
-OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
+OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'immediate');
 
-assert_eq(OCWebHookJob::storedCount(),  2, 'Kafka path: 2 jobs scritti in DB (outbox)');
-assert_eq(OCWebHookJob::removedCount(), 1, 'Kafka path: solo il job kafka-push-* rimosso');
-assert_true(!OCWebHookQueue::$spy->pushJobsCalled, 'Kafka path: HTTP queue NOT invocata');
-assert_true(!OCWebHookQueue::$spy->executeCalled,  'Kafka path: HTTP execute NOT invocato');
-
-$calls = FakeKafkaProducer::$calls;
-assert_eq(count($calls), 1, 'Kafka path: produce() chiamato esattamente una volta');
-assert_eq($calls[0]['trigger'] ?? null, 'post_publish', 'Kafka path: trigger key corretto');
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TEST 2: Fallback path — produce fails → TUTTI i job restano PENDING,
-//         incluso kafka-push-*, e vengono passati alla coda HTTP
-// ─────────────────────────────────────────────────────────────────────────────
-
-setup();
-FakeKafkaProducer::$enabled       = true;
-FakeKafkaProducer::$produceResult = false;   // Kafka down
-
-OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
-
-assert_eq(OCWebHookJob::storedCount(),  2, 'Fallback path: 2 jobs scritti in DB');
-assert_eq(OCWebHookJob::removedCount(), 0, 'Fallback path: nessun job rimosso (restano PENDING)');
-assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Fallback path: HTTP queue.pushJobs() chiamato');
-assert_true(OCWebHookQueue::$spy->executeCalled,  'Fallback path: HTTP queue.execute() chiamato');
-assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Fallback path: entrambi i job passati alla coda');
+assert_eq(OCWebHookJob::storedCount(),            2, 'HTTP: 2 jobs written to DB (outbox)');
+assert_eq(OCWebHookJob::removedCount(),           0, 'HTTP: no jobs removed (all stay PENDING)');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled,    'HTTP: queue.pushJobs() called');
+assert_true(OCWebHookQueue::$spy->executeCalled,     'HTTP: queue.execute() called');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'HTTP: both jobs passed to queue');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 3: Kafka disabled → HTTP path diretto, produce() mai chiamato
+// TEST 2: Kafka endpoint (kafka://) is accepted and job is stored
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
-FakeKafkaProducer::$enabled = false;
+OCWebHook::$hooks = [
+    new TestWebHook(1, 'kafka-cms', 'kafka://redpanda:9092/cms'),
+    new TestWebHook(2, 'search',    'https://search.example.com/hook'),
+];
+TestWebHookRegistry::$registry = [
+    1 => 'kafka://redpanda:9092/cms',
+    2 => 'https://search.example.com/hook',
+];
 
-OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
+OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'immediate');
 
-assert_eq(OCWebHookJob::storedCount(),         2, 'Kafka disabled: jobs scritti in DB');
-assert_eq(count(FakeKafkaProducer::$calls),    0, 'Kafka disabled: produce() mai chiamato');
-assert_true(OCWebHookQueue::$spy->pushJobsCalled, 'Kafka disabled: HTTP queue.pushJobs() chiamato');
-assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Kafka disabled: entrambi i job alla coda HTTP');
+assert_eq(OCWebHookJob::storedCount(),                2, 'Kafka: kafka:// endpoint accepted, job stored');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled,        'Kafka: queue.pushJobs() called with kafka job');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs),  2, 'Kafka: both jobs (kafka + http) passed to queue');
+assert_true(empty(eZDebug::$errors),                     'Kafka: no eZDebug errors for valid kafka:// URL');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 4: Nessun webhook configurato → niente creato, niente inviato
+// TEST 3: Invalid URL → skipped with eZDebug error, valid job still stored
+// ─────────────────────────────────────────────────────────────────────────────
+
+setup();
+OCWebHook::$hooks = [
+    new TestWebHook(1, 'bad-webhook',   'not-a-valid-url'),
+    new TestWebHook(2, 'good-webhook',  'https://good.example.com/hook'),
+];
+TestWebHookRegistry::$registry = [
+    1 => 'not-a-valid-url',
+    2 => 'https://good.example.com/hook',
+];
+
+OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'immediate');
+
+assert_eq(OCWebHookJob::storedCount(),            1, 'Invalid URL: only the valid webhook job stored');
+assert_true(!empty(eZDebug::$errors),                'Invalid URL: eZDebug::writeError() called');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled,    'Invalid URL: queue.pushJobs() still called with valid job');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 1, 'Invalid URL: 1 job passed to queue');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 4: No webhooks configured → no jobs, queue still called with empty list
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
 OCWebHook::$hooks = [];
 
-OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'default');
+OCWebHookEmitter::emit('post_publish', ['data' => 'test'], 'immediate');
 
-assert_eq(OCWebHookJob::storedCount(),      0, 'No webhooks: nessun job creato');
-assert_eq(count(FakeKafkaProducer::$calls), 0, 'No webhooks: produce() non chiamato');
+assert_eq(OCWebHookJob::storedCount(), 0, 'No webhooks: no jobs created');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 0, 'No webhooks: queue receives empty list');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 5: Unknown trigger → eZDebug error, nothing else happens
+// ─────────────────────────────────────────────────────────────────────────────
+
+setup();
+OCWebHookTriggerRegistry::$trigger = null;  // trigger not found
+OCWebHook::$hooks = [new TestWebHook(1, 'some-hook', 'https://example.com/hook')];
+
+OCWebHookEmitter::emit('unknown_trigger', ['data' => 'test'], 'immediate');
+
+assert_eq(OCWebHookJob::storedCount(), 0,    'Unknown trigger: no jobs created');
+assert_true(!empty(eZDebug::$errors),        'Unknown trigger: eZDebug::writeError() called');
+assert_false(OCWebHookQueue::$spy->pushJobsCalled, 'Unknown trigger: queue not invoked');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results

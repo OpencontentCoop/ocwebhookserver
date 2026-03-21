@@ -8,7 +8,7 @@
  *  - Redpanda (or Kafka) reachable at KAFKA_BROKER env var (default: redpanda:9092)
  *  - KAFKA_TOPIC env var (default: cms-test)
  *
- * Usage (standalone, no PHPUnit):
+ * Usage (standalone):
  *   php tests/KafkaProducerTest.php
  *
  * Usage (via test runner):
@@ -22,76 +22,62 @@ require_once __DIR__ . '/../classes/ocwebhookkafkaproducer.php';
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-$BROKER     = getenv('KAFKA_BROKER') ?: 'redpanda:9092';
-$TOPIC      = getenv('KAFKA_TOPIC')  ?: 'cms-test';
-$FLUSH_MS   = 2000;
-$PASSED     = 0;
-$FAILED     = 0;
+$BROKER   = getenv('KAFKA_BROKER') ?: 'redpanda:9092';
+$TOPIC    = getenv('KAFKA_TOPIC')  ?: 'cms-test';
+$FLUSH_MS = 2000;
+$PASSED   = 0;
+$FAILED   = 0;
 
-function ok(string $name): void
+function ok(string $name): void    { global $PASSED; $PASSED++; echo "\033[32m[PASS]\033[0m $name\n"; }
+function fail(string $name, string $r = ''): void { global $FAILED; $FAILED++; echo "\033[31m[FAIL]\033[0m $name" . ($r ? " — $r" : '') . "\n"; }
+function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : fail($t, $r); }
+function assert_false(bool $v, string $t, string $r = ''): void { (!$v) ? ok($t) : fail($t, $r); }
+function assert_eq($a, $b, string $t, string $r = ''): void
 {
-    global $PASSED;
-    $PASSED++;
-    echo "\033[32m[PASS]\033[0m $name\n";
-}
-
-function fail(string $name, string $reason = ''): void
-{
-    global $FAILED;
-    $FAILED++;
-    echo "\033[31m[FAIL]\033[0m $name" . ($reason ? " — $reason" : '') . "\n";
-}
-
-function assert_true(bool $value, string $test, string $reason = ''): void
-{
-    $value ? ok($test) : fail($test, $reason);
-}
-
-function assert_false(bool $value, string $test, string $reason = ''): void
-{
-    (!$value) ? ok($test) : fail($test, $reason);
+    if ($a === $b) {
+        ok($t);
+    } else {
+        fail($t, sprintf("expected %s, got %s. %s", var_export($b, true), var_export($a, true), $r));
+    }
 }
 
 /**
- * Returns the current high-water-mark offset for partition 0 of $topic.
- * Used to know where to start consuming after a produce.
+ * Returns the current high-water-mark offset for partition 0.
  */
 function get_end_offset(string $broker, string $topic): int
 {
     $conf = new RdKafka\Conf();
     $conf->set('metadata.broker.list', $broker);
-    $rk = new RdKafka\Consumer($conf);
-    $topicObj = $rk->newTopic($topic);
-    // Query watermark offsets for partition 0
+    $rk  = new RdKafka\Consumer($conf);
     $low = $high = 0;
     $rk->queryWatermarkOffsets($topic, 0, $low, $high, 2000);
     return $high;
 }
 
 /**
- * Consume one message from $topic at partition 0 starting at $startOffset.
- * Returns the message value string or null on timeout.
+ * Consume one message from $topic starting at $startOffset.
+ * Returns the RdKafka\Message object (with ->payload and ->headers) or null.
  */
-function consume_from_offset(string $broker, string $topic, int $startOffset, int $timeoutMs = 5000): ?string
+function consume_message(string $broker, string $topic, int $startOffset, int $timeoutMs = 5000): ?RdKafka\Message
 {
     $conf = new RdKafka\Conf();
     $conf->set('metadata.broker.list', $broker);
 
     $consumer = new RdKafka\Consumer($conf);
     $topicConf = new RdKafka\TopicConf();
-    $topicObj = $consumer->newTopic($topic, $topicConf);
+    $topicObj  = $consumer->newTopic($topic, $topicConf);
 
     $topicObj->consumeStart(0, $startOffset);
 
     $deadline = microtime(true) + ($timeoutMs / 1000);
-    $result = null;
+    $result   = null;
     while (microtime(true) < $deadline) {
         $message = $topicObj->consume(0, 500);
         if ($message === null) {
             continue;
         }
         if ($message->err === RD_KAFKA_RESP_ERR_NO_ERROR) {
-            $result = $message->payload;
+            $result = $message;
             break;
         }
         if ($message->err !== RD_KAFKA_RESP_ERR__PARTITION_EOF &&
@@ -103,110 +89,152 @@ function consume_from_offset(string $broker, string $topic, int $startOffset, in
     return $result;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Reset singleton between tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-function reset_producer(): void
+/**
+ * Build the INI test configuration.
+ */
+function set_ini(string $broker, string $topic, int $flushMs, array $extra = []): void
 {
-    $ref = new ReflectionProperty(OCWebHookKafkaProducer::class, 'instance');
-    $ref->setAccessible(true);
-    $ref->setValue(null, null);
+    eZINI::setTestData('webhook.ini', array_merge([
+        'KafkaSettings' => [
+            'FlushTimeoutMs' => (string)$flushMs,
+            'TenantId'       => 'test-tenant-uuid-1234',
+            'ProductSlug'    => 'website',
+            'AppName'        => 'website-comuni',
+            'AppVersion'     => '1.5.0',
+        ],
+        'KafkaCeTypeMap' => [
+            'post_publish' => 'content.published',
+            'delete'       => 'content.deleted',
+        ],
+    ], $extra));
     eZDebug::reset();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 1: isEnabled() returns false when rdkafka is missing (unit)
+// TEST 1: produce() returns true and message arrives on Kafka (integration)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// We can only test the "enabled" branch directly since rdkafka IS loaded here.
-eZINI::setTestData('webhook.ini', ['KafkaSettings' => ['Enabled' => 'disabled']]);
-reset_producer();
-assert_false(
-    OCWebHookKafkaProducer::isEnabled(),
-    'isEnabled() returns false when Enabled=disabled'
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TEST 2: isEnabled() returns true when rdkafka is loaded and Enabled=enabled
-// ─────────────────────────────────────────────────────────────────────────────
-
-eZINI::setTestData('webhook.ini', ['KafkaSettings' => ['Enabled' => 'enabled']]);
-assert_true(
-    extension_loaded('rdkafka') && OCWebHookKafkaProducer::isEnabled(),
-    'isEnabled() returns true when rdkafka loaded and Enabled=enabled'
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TEST 3: produce() succeeds and message arrives on Kafka topic (integration)
-// ─────────────────────────────────────────────────────────────────────────────
-
-global $BROKER, $TOPIC, $FLUSH_MS;
-
-eZINI::setTestData('webhook.ini', [
-    'KafkaSettings' => [
-        'Enabled'        => 'enabled',
-        'Brokers'        => [$BROKER],
-        'Topic'          => $TOPIC,
-        'FlushTimeoutMs' => (string)$FLUSH_MS,
-    ]
-]);
-reset_producer();
+set_ini($BROKER, $TOPIC, $FLUSH_MS);
 
 $payload = [
-    'test'    => true,
-    'trigger' => 'post_publish',
-    'ts'      => date('c'),
-    'run_id'  => getmypid(),
+    'entity' => [
+        'meta' => [
+            'id'         => 'comune_it:42',
+            'siteaccess' => 'comune_it',
+            'object_id'  => '42',
+            'type_id'    => 'article',
+        ],
+        'data' => ['it-IT' => ['title' => 'Test notizia']],
+    ],
 ];
 
-// Get the end offset BEFORE producing, so we can consume exactly our message
 $startOffset = get_end_offset($BROKER, $TOPIC);
+$producer    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$sent        = $producer->produce('post_publish', $payload);
 
-$result = OCWebHookKafkaProducer::instance()->produce('post_publish', $payload);
-assert_true($result, 'produce() returns true when Redpanda is reachable');
+assert_true($sent, 'produce() returns true when Redpanda is reachable');
 
-// Consume from the exact offset where our message was written
-$received = consume_from_offset($BROKER, $TOPIC, $startOffset, 5000);
-assert_true(
-    $received !== null,
-    'Message arrived on Kafka topic after produce()'
-);
+$message = consume_message($BROKER, $TOPIC, $startOffset, 5000);
+assert_true($message !== null, 'Message arrived on Kafka topic after produce()');
 
-if ($received !== null) {
-    $decoded = json_decode($received, true);
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 2: Payload matches what was sent
+// ─────────────────────────────────────────────────────────────────────────────
+
+if ($message !== null) {
+    $decoded = json_decode($message->payload, true);
     assert_true(
-        isset($decoded['run_id']) && $decoded['run_id'] === getmypid(),
-        'Message payload matches what was sent (run_id check)'
+        isset($decoded['entity']['meta']['id']) && $decoded['entity']['meta']['id'] === 'comune_it:42',
+        'Payload entity.meta.id matches'
     );
     assert_true(
-        isset($decoded['trigger']) && $decoded['trigger'] === 'post_publish',
-        'Message contains trigger identifier in payload'
+        isset($decoded['entity']['data']['it-IT']['title']),
+        'Payload entity.data structure preserved'
     );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 4: produce() returns false when broker is unreachable (within timeout)
+// TEST 3: CloudEvents headers are set on the produced message
 // ─────────────────────────────────────────────────────────────────────────────
 
-eZINI::setTestData('webhook.ini', [
-    'KafkaSettings' => [
-        'Enabled'        => 'enabled',
-        'Brokers'        => ['127.0.0.1:19999'],  // nothing listening here
-        'Topic'          => $TOPIC,
-        'FlushTimeoutMs' => '2000',
-    ]
-]);
-reset_producer();
+if ($message !== null) {
+    $headers = (array)($message->headers ?? []);
 
-$start = microtime(true);
-$resultDown = OCWebHookKafkaProducer::instance()->produce('post_publish', ['test' => 'fallback']);
-$elapsed = microtime(true) - $start;
+    assert_true(
+        isset($headers['ce_specversion']) && $headers['ce_specversion'] === '1.0',
+        'Header ce_specversion = "1.0"'
+    );
+    assert_true(
+        isset($headers['ce_type']) && $headers['ce_type'] === 'it.opencity.website.content.published',
+        'Header ce_type resolved via KafkaCeTypeMap'
+    );
+    assert_true(
+        isset($headers['ce_source']) && $headers['ce_source'] === 'urn:opencity:website:test-tenant-uuid-1234',
+        'Header ce_source follows urn:opencity:<slug>:<tenant>'
+    );
+    assert_true(
+        isset($headers['ce_id']) && strlen($headers['ce_id']) === 36,
+        'Header ce_id is a UUID (length 36)'
+    );
+    assert_true(
+        isset($headers['ce_time']) && strtotime($headers['ce_time']) !== false,
+        'Header ce_time is a valid date/time'
+    );
+    assert_true(
+        isset($headers['content-type']) && $headers['content-type'] === 'application/json',
+        'Header content-type = "application/json"'
+    );
+    assert_true(
+        isset($headers['oc_app_name']) && $headers['oc_app_name'] === 'website-comuni',
+        'Header oc_app_name set'
+    );
+    assert_true(
+        isset($headers['oc_app_version']) && $headers['oc_app_version'] === '1.5.0',
+        'Header oc_app_version set'
+    );
+
+    // Verify ce_id is a valid UUID v4 format
+    $uuid = $headers['ce_id'] ?? '';
+    assert_true(
+        (bool)preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid),
+        'Header ce_id is a valid UUID v4'
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 4: ce_type fallback when trigger not in KafkaCeTypeMap
+// ─────────────────────────────────────────────────────────────────────────────
+
+$startOffset2 = get_end_offset($BROKER, $TOPIC);
+$producer2    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$sent2        = $producer2->produce('custom_trigger_xyz', ['entity' => ['meta' => [], 'data' => []]]);
+assert_true($sent2, 'produce() with unmapped trigger returns true');
+
+$message2 = consume_message($BROKER, $TOPIC, $startOffset2, 5000);
+if ($message2 !== null) {
+    $headers2 = (array)($message2->headers ?? []);
+    assert_true(
+        isset($headers2['ce_type']) && $headers2['ce_type'] === 'it.opencity.website.custom_trigger_xyz',
+        'ce_type uses raw trigger identifier as fallback'
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 5: produce() returns false when broker is unreachable
+// ─────────────────────────────────────────────────────────────────────────────
+
+set_ini('127.0.0.1:19999', $TOPIC, 500);  // short flush timeout to speed up test
+eZDebug::reset();
+
+$start       = microtime(true);
+$producerBad = new OCWebHookKafkaProducer('127.0.0.1:19999', $TOPIC);
+$resultDown  = $producerBad->produce('post_publish', ['entity' => ['meta' => [], 'data' => []]]);
+$elapsed     = microtime(true) - $start;
 
 assert_false($resultDown, 'produce() returns false when broker is unreachable');
 assert_true(
-    $elapsed < 4.0,
-    sprintf('Timeout respected: elapsed %.2fs < 4s (FlushTimeoutMs=2000)', $elapsed)
+    $elapsed < 3.0,
+    sprintf('Flush timeout respected: %.2fs < 3s (FlushTimeoutMs=500)', $elapsed)
 );
 assert_true(
     !empty(eZDebug::$errors),
