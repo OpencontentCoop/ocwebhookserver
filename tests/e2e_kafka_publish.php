@@ -183,6 +183,53 @@ if (!$trigger instanceof OCWebHookTriggerInterface) {
 $triggerName = $trigger->getIdentifier();
 echo "Active trigger: $triggerName\n";
 
+// ── Setup workflow eZ Publish per post_publish ────────────────────────────────
+//
+// Il WorkflowWebHookType è un evento workflow eZ Publish: se il workflow non è
+// configurato nel DB, la pubblicazione di contenuto non chiama emit().
+// Il test lo crea programmaticamente e lo rimuove dopo.
+
+$db = eZDB::instance();
+
+// Verifica se esiste già un trigger post_publish connesso al workflow webhook
+$existingCheck = $db->arrayQuery(
+    "SELECT COUNT(*) as c FROM ezworkflow_event " .
+    "WHERE workflow_type_string = 'event_workflowwebhook' " .
+    "AND workflow_id IN (SELECT workflow_id FROM eztrigger WHERE name = 'post_publish')"
+);
+$workflowAlreadySetup = (int)($existingCheck[0]['c'] ?? 0) > 0;
+
+$testWorkflowId  = null;
+$testTriggerId   = null;
+
+if (!$workflowAlreadySetup) {
+    echo "Workflow post_publish non configurato — lo creo per il test...\n";
+
+    // Crea il workflow
+    $db->query(
+        "INSERT INTO ezworkflow (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
+        "VALUES (14, 14, " . time() . ", " . time() . ", 'E2E test post_publish webhook', 1, 1)"
+    );
+    $testWorkflowId = $db->lastSerialID('ezworkflow', 'id');
+
+    // Crea l'evento workflow di tipo WorkflowWebHookType
+    $db->query(
+        "INSERT INTO ezworkflow_event (workflow_id, version, placement, workflow_type_string) " .
+        "VALUES ($testWorkflowId, 0, 1, 'event_workflowwebhook')"
+    );
+
+    // Connette il workflow al trigger post_publish di eZ Publish
+    $db->query(
+        "INSERT INTO eztrigger (module_name, function_name, connect_type, name, workflow_id) " .
+        "VALUES ('content', 'publish', 'a', 'post_publish', $testWorkflowId)"
+    );
+    $testTriggerId = $db->lastSerialID('eztrigger', 'id');
+
+    echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
+} else {
+    echo "Workflow post_publish già configurato nel DB\n";
+}
+
 // ── Step 1: leggi offset Kafka prima della pubblicazione ──────────────────────
 
 $startOffset = get_end_offset($BROKER, $TOPIC);
@@ -205,22 +252,32 @@ $articleJson = json_encode([
 
 $authHeader = 'Basic ' . base64_encode("$CMS_USER:$CMS_PASS");
 
-echo "POST /Novita/Notizie — titolo: \"$title\"\n";
+echo "POST /novita/notizie — titolo: \"$title\"\n";
 
-$resp = http_request('POST', '/Novita/Notizie', [
+$resp = http_request('POST', '/novita/notizie', [
     'Host'          => $APP_HOST,
     'Content-Type'  => 'application/json',
+    'Accept'        => 'application/json',
     'Authorization' => $authHeader,
 ], $articleJson, $APP_HOST);
+
+// Debug: mostra sempre le prime righe della risposta
+$contentType = '';
+foreach (explode("\r\n", $resp['headers']) as $h) {
+    if (stripos($h, 'content-type:') === 0) {
+        $contentType = trim(substr($h, strlen('content-type:')));
+    }
+}
+echo "HTTP {$resp['code']} — Content-Type: $contentType\n";
+echo "Response body (first 500): " . substr($resp['body'], 0, 500) . "\n\n";
 
 assert_true(
     in_array($resp['code'], [200, 201], true),
     "REST API crea la notizia (HTTP 200/201)",
-    "HTTP {$resp['code']} — body: " . substr($resp['body'], 0, 300)
+    "HTTP {$resp['code']}"
 );
 
 if (!in_array($resp['code'], [200, 201], true)) {
-    echo "\nRisposta API:\n" . $resp['body'] . "\n";
     $script->shutdown(1);
     exit(1);
 }
@@ -235,8 +292,13 @@ if (isset($responseData['metadata']['id'])) {
     $articleId = (string)$responseData['id'];
 }
 
-assert_true($articleId !== null, 'Risposta REST contiene id articolo', 'Campi disponibili: ' . implode(', ', array_keys($responseData ?? [])));
-echo "Articolo creato con id: $articleId\n\n";
+if ($articleId !== null) {
+    ok('Risposta REST contiene id articolo');
+    echo "Articolo creato con id: $articleId\n";
+} else {
+    echo "[INFO] ID articolo non nella risposta REST — lo leggeremo dal messaggio Kafka\n";
+}
+echo "\n";
 
 // ── Step 3: aspetta il messaggio Kafka ────────────────────────────────────────
 
@@ -377,19 +439,29 @@ if ($tenantId !== '' && $tenantId !== null) {
     echo "[INFO] TenantId non configurato — partition key null/empty atteso\n";
 }
 
-// ── Step 7: cleanup — cancella l'articolo creato ──────────────────────────────
+// ── Step 7: cleanup — cancella l'articolo e rimuove il workflow di test ───────
 
 if ($articleId !== null) {
     echo "\nCleanup: cancello articolo id=$articleId...\n";
-    $delResp = http_request('DELETE', '/Novita/Notizie/' . $articleId, [
+    $delResp = http_request('DELETE', '/novita/notizie/' . $articleId, [
         'Host'          => $APP_HOST,
         'Authorization' => $authHeader,
     ], null, $APP_HOST);
     if (in_array($delResp['code'], [200, 204, 404], true)) {
         echo "Articolo rimosso (HTTP {$delResp['code']})\n";
     } else {
-        echo "[WARN] DELETE /Novita/Notizie/$articleId → HTTP {$delResp['code']}\n";
+        echo "[WARN] DELETE /novita/notizie/$articleId → HTTP {$delResp['code']}\n";
     }
+}
+
+if ($testTriggerId !== null) {
+    $db->query("DELETE FROM eztrigger WHERE id = $testTriggerId");
+    echo "Trigger di test rimosso (id=$testTriggerId)\n";
+}
+if ($testWorkflowId !== null) {
+    $db->query("DELETE FROM ezworkflow_event WHERE workflow_id = $testWorkflowId");
+    $db->query("DELETE FROM ezworkflow WHERE id = $testWorkflowId");
+    echo "Workflow di test rimosso (id=$testWorkflowId)\n";
 }
 
 // ── Risultati ─────────────────────────────────────────────────────────────────
