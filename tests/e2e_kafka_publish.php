@@ -136,7 +136,8 @@ function http_request(string $method, string $path, array $headers, ?string $bod
         $curlHeaders[] = "$k: $v";
     }
     curl_setopt_array($ch, [
-        CURLOPT_URL            => 'http://localhost' . $path,
+        CURLOPT_URL            => 'http://127.0.0.1' . $path,
+        CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
         CURLOPT_HTTPHEADER     => $curlHeaders,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HEADER         => true,
