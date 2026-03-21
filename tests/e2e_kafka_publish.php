@@ -146,10 +146,15 @@ function http_request(string $method, string $path, array $headers, ?string $bod
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_FOLLOWLOCATION => false,
     ]);
-    $raw  = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $raw     = curl_exec($ch);
+    $code    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $size    = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $errno   = curl_errno($ch);
+    $errmsg  = curl_error($ch);
     curl_close($ch);
+    if ($errno !== 0) {
+        echo "[curl error $errno] $errmsg\n";
+    }
     return [
         'code'    => $code,
         'headers' => substr($raw, 0, $size),
