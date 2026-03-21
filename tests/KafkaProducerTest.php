@@ -136,6 +136,11 @@ assert_true($sent, 'produce() returns true when Redpanda is reachable');
 
 $message = consume_message($BROKER, $TOPIC, $startOffset, 5000);
 assert_true($message !== null, 'Message arrived on Kafka topic after produce()');
+assert_eq(
+    $message !== null ? $message->key : null,
+    'test-tenant-uuid-1234',
+    'Message partition key equals TenantId'
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 2: Payload matches what was sent

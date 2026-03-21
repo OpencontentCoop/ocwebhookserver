@@ -88,7 +88,7 @@ class OCWebHookKafkaProducer
     /**
      * Produce un messaggio su Kafka e attende l'ack del broker.
      *
-     * @param string $triggerIdentifier usato come message key (garantisce ordering per tipo evento)
+     * @param string $triggerIdentifier usato per gli header CloudEvents
      * @param array  $payload
      * @return bool  true se l'ack è arrivato entro FlushTimeoutMs, false altrimenti
      */
@@ -100,7 +100,7 @@ class OCWebHookKafkaProducer
                 RD_KAFKA_PARTITION_UA,
                 0,
                 json_encode($payload),
-                $triggerIdentifier,
+                $this->tenantId ?: null,
                 $this->buildHeaders($triggerIdentifier)
             );
 

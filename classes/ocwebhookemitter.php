@@ -49,5 +49,46 @@ class OCWebHookEmitter
         }
 
         OCWebHookQueue::instance($queueHandlerIdentifier)->pushJobs($jobs)->execute();
+
+        // INI-based direct Kafka produce.
+        // When KafkaSettings.Enabled=enabled the emitter produces directly to the
+        // broker/topic from webhook.ini, independently of any DB webhook record.
+        // Best-effort: errors are logged but do not block content publication.
+        self::emitToIniKafka($trigger->getIdentifier(), $payload);
+    }
+
+    private static function emitToIniKafka($triggerIdentifier, $payload)
+    {
+        $ini = eZINI::instance('webhook.ini');
+
+        if ($ini->variable('KafkaSettings', 'Enabled') !== 'enabled') {
+            return;
+        }
+
+        // Brokers can be set as array in INI (Brokers[]) or via env vars as indexed
+        // keys (Brokers_0, Brokers_1, ...) — collect both.
+        $group = $ini->group('KafkaSettings');
+        $brokersList = isset($group['Brokers']) && is_array($group['Brokers']) ? $group['Brokers'] : [];
+        for ($i = 0; isset($group["Brokers_$i"]); $i++) {
+            $brokersList[] = $group["Brokers_$i"];
+        }
+        $topic = $ini->variable('KafkaSettings', 'Topic');
+
+        if (empty($brokersList) || empty($topic)) {
+            return;
+        }
+
+        $brokers = implode(',', $brokersList);
+
+        $formattedPayload = $payload;
+        if (is_array($payload) && isset($payload['metadata'])) {
+            $siteaccess = eZSiteAccess::current();
+            $siteaccessName = isset($siteaccess['name']) ? $siteaccess['name'] : 'default';
+            $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, getenv('EZ_INSTANCE') ?: null);
+            $formattedPayload = $formatter->format($payload);
+        }
+
+        $producer = new OCWebHookKafkaProducer($brokers, $topic);
+        $producer->produce($triggerIdentifier, $formattedPayload);
     }
 }

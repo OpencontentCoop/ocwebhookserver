@@ -20,15 +20,21 @@
  */
 class OCWebHookKafkaPayloadFormatter
 {
-    /** @var string eZ Publish siteaccess name, used as entity identifier prefix */
+    /** @var string eZ Publish siteaccess name (e.g. "frontend"), used in entity.meta.siteaccess */
     private $siteaccess;
 
+    /** @var string Instance identifier for entity.meta.id prefix (e.g. EZ_INSTANCE "bugliano") */
+    private $instanceId;
+
     /**
-     * @param string $siteaccess eZ Publish siteaccess name (e.g. "comune_it")
+     * @param string      $siteaccess  eZ Publish siteaccess name (e.g. "frontend")
+     * @param string|null $instanceId  Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
+     *                                 Defaults to $siteaccess when null.
      */
-    public function __construct($siteaccess)
+    public function __construct($siteaccess, $instanceId = null)
     {
         $this->siteaccess = $siteaccess;
+        $this->instanceId = $instanceId !== null ? $instanceId : $siteaccess;
     }
 
     /**
@@ -55,7 +61,7 @@ class OCWebHookKafkaPayloadFormatter
         }
 
         $meta = [
-            'id'           => $this->siteaccess . ':' . $objectId,
+            'id'           => $this->instanceId . ':' . $objectId,
             'siteaccess'   => $this->siteaccess,
             'object_id'    => $objectId,
             'remote_id'    => isset($metadata['remoteId'])          ? $metadata['remoteId']          : null,

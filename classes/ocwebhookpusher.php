@@ -70,10 +70,18 @@ class OCWebHookPusher
                     $brokers = $slashPos !== false ? substr($withoutScheme, 0, $slashPos) : $withoutScheme;
                     $topic = $slashPos !== false ? substr($withoutScheme, $slashPos + 1) : '';
 
+                    $payload = $job->getSerializedPayload();
+                    if (is_array($payload) && isset($payload['metadata'])) {
+                        $siteaccess = eZSiteAccess::current();
+                        $siteaccessName = isset($siteaccess['name']) ? $siteaccess['name'] : 'default';
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, getenv('EZ_INSTANCE') ?: null);
+                        $payload = $formatter->format($payload);
+                    }
+
                     $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
                     $sent = $kafkaProducer->produce(
                         $job->attribute('trigger_identifier'),
-                        $job->getSerializedPayload()
+                        $payload
                     );
 
                     $job = OCWebHookJob::fetch($jobId);
