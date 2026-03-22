@@ -13,13 +13,15 @@
  *   - Trigger PostPublishWebHookTrigger attivo (EZINI_webhook__TriggersSettings__TriggerList_0)
  *
  * Il test:
- *   1. Crea una notizia reale via POST /novita/notizie (HTTP Basic Auth)
- *   2. Aspetta il messaggio Kafka emesso dal trigger PostPublish
- *   3. Verifica entity.meta (object_id, id, siteaccess, type_id, ...)
- *   4. Verifica entity.data.it-IT.title == titolo inviato
- *   5. Verifica gli header CloudEvents (ce_specversion, ce_type, ce_source, ce_id, ce_time)
- *   6. Verifica la chiave di partizione = TenantId (se configurato)
- *   7. Cancella la notizia creata (cleanup)
+ *   1. Recupera un argomento (topic) e un ufficio validi dall'istanza via GET
+ *   2. Crea una notizia reale via POST /api/openapi/novita/notizie (HTTP Basic Auth)
+ *   3. Se argomento o ufficio non disponibili → SKIP
+ *   4. Aspetta il messaggio Kafka emesso dal trigger PostPublish
+ *   5. Verifica entity.meta (object_id, id, siteaccess, type_id, ...)
+ *   6. Verifica entity.data.it-IT.title == titolo inviato
+ *   7. Verifica gli header CloudEvents (ce_specversion, ce_type, ce_source, ce_id, ce_time)
+ *   8. Verifica la chiave di partizione = TenantId (se configurato)
+ *   9. Cancella la notizia creata (cleanup)
  */
 
 define('OCWEBHOOKSERVER_INTEGRATION_TEST', true);
@@ -194,7 +196,39 @@ echo "Active trigger: $triggerName\n";
 $startOffset = get_end_offset($BROKER, $TOPIC);
 echo "Kafka offset before publish: $startOffset\n\n";
 
-// ── Step 2: crea una notizia via REST API ─────────────────────────────────────
+// ── Step 2: recupera argomento e ufficio validi dall'istanza ─────────────────
+//
+// L'API richiede il campo "uri" (URL assoluto della risorsa), non "id".
+// Li recuperiamo dinamicamente così il test funziona su qualsiasi istanza.
+
+echo "Cerco un argomento disponibile...\n";
+$topicsListResp = http_request('GET', '/api/openapi/argomenti', [
+    'Host'          => $APP_HOST,
+    'Accept'        => 'application/json',
+    'Authorization' => $authHeader,
+], null, $APP_HOST);
+$topicsListData = json_decode($topicsListResp['body'], true);
+$topicUri = $topicsListData['items'][0]['uri'] ?? null;
+
+echo "Cerco un ufficio disponibile...\n";
+$ufficiListResp = http_request('GET', '/api/openapi/amministrazione/uffici', [
+    'Host'          => $APP_HOST,
+    'Accept'        => 'application/json',
+    'Authorization' => $authHeader,
+], null, $APP_HOST);
+$ufficiListData = json_decode($ufficiListResp['body'], true);
+$ufficioUri = $ufficiListData['items'][0]['uri'] ?? null;
+
+if ($topicUri === null || $ufficioUri === null) {
+    echo "\033[33m[SKIP]\033[0m Nessun argomento o ufficio disponibile nell'istanza — impossibile creare una notizia\n";
+    $script->shutdown(0);
+    exit(0);
+}
+
+echo "Topic URI: $topicUri\n";
+echo "Ufficio URI: $ufficioUri\n\n";
+
+// ── Step 3: crea una notizia via REST API ─────────────────────────────────────
 
 $uniqueSuffix = date('Ymd-His') . '-' . substr(md5(uniqid()), 0, 6);
 $title = "Test E2E Kafka $uniqueSuffix";
@@ -205,8 +239,8 @@ $articleJson = json_encode([
     'body'         => '<p>Corpo della notizia generata automaticamente dal test E2E.</p>',
     'published'    => date('Y-m-d'),
     'content_type' => [['id' => 'comunicato-stampa']],
-    'topics'       => [['id' => 'ambiente']],
-    'author'       => [['id' => 'ufficio-comunicazione']],
+    'topics'       => [['uri' => $topicUri]],
+    'author'       => [['uri' => $ufficioUri]],
 ]);
 
 $authHeader = 'Basic ' . base64_encode("$CMS_USER:$CMS_PASS");
@@ -263,7 +297,7 @@ if ($articleId !== null) {
 }
 echo "\n";
 
-// ── Step 3: aspetta il messaggio Kafka ────────────────────────────────────────
+// ── Step 4: aspetta il messaggio Kafka ────────────────────────────────────────
 
 echo "Attendo messaggio Kafka (max 15s)...\n";
 $message = consume_message($BROKER, $TOPIC, $startOffset, 15000);
@@ -276,7 +310,7 @@ if ($message === null) {
     exit(1);
 }
 
-// ── Step 4: verifica payload ──────────────────────────────────────────────────
+// ── Step 5: verifica payload ──────────────────────────────────────────────────
 
 echo "\nVerifica payload:\n";
 
@@ -332,7 +366,7 @@ assert_eq(
     'entity.data.it-IT.title = titolo inviato'
 );
 
-// ── Step 5: verifica header CloudEvents ───────────────────────────────────────
+// ── Step 6: verifica header CloudEvents ───────────────────────────────────────
 
 echo "\nVerifica header CloudEvents:\n";
 
@@ -381,7 +415,7 @@ echo "ce_source: " . ($headers['ce_source'] ?? '(missing)') . "\n";
 echo "ce_time:   " . ($headers['ce_time']   ?? '(missing)') . "\n";
 echo "ce_id:     " . ($headers['ce_id']     ?? '(missing)') . "\n";
 
-// ── Step 6: verifica chiave di partizione ─────────────────────────────────────
+// ── Step 7: verifica chiave di partizione ─────────────────────────────────────
 
 echo "\nVerifica partition key:\n";
 
@@ -402,7 +436,7 @@ if ($tenantId !== '' && $tenantId !== null) {
     echo "[INFO] TenantId non configurato — partition key null/empty atteso\n";
 }
 
-// ── Step 7: cleanup — cancella l'articolo creato durante il test ─────────────
+// ── Step 8: cleanup — cancella l'articolo creato durante il test ─────────────
 
 if ($articleId !== null) {
     echo "\nCleanup: cancello articolo id=$articleId...\n";
