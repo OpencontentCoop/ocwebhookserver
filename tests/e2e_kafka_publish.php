@@ -238,7 +238,7 @@ $articleJson = json_encode([
     'abstract'     => 'Abstract notizia test E2E Kafka - ' . $uniqueSuffix,
     'body'         => '<p>Corpo della notizia generata automaticamente dal test E2E.</p>',
     'published'    => date('Y-m-d'),
-    'content_type' => [['id' => 'comunicato-stampa']],
+    'content_type' => ['Comunicato stampa'],
     'topics'       => [['uri' => $topicUri]],
     'author'       => [['uri' => $ufficioUri]],
 ]);
