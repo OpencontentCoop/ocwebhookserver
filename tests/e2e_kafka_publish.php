@@ -13,7 +13,7 @@
  *   - Trigger PostPublishWebHookTrigger attivo (EZINI_webhook__TriggersSettings__TriggerList_0)
  *
  * Il test:
- *   1. Crea una notizia reale via POST /Novita/Notizie (HTTP Basic Auth)
+ *   1. Crea una notizia reale via POST /novita/notizie (HTTP Basic Auth)
  *   2. Aspetta il messaggio Kafka emesso dal trigger PostPublish
  *   3. Verifica entity.meta (object_id, id, siteaccess, type_id, ...)
  *   4. Verifica entity.data.it-IT.title == titolo inviato
@@ -188,68 +188,6 @@ if (!$trigger instanceof OCWebHookTriggerInterface) {
 
 $triggerName = $trigger->getIdentifier();
 echo "Active trigger: $triggerName\n";
-
-// ── Setup workflow eZ Publish per post_publish ────────────────────────────────
-//
-// Il WorkflowWebHookType è un evento workflow eZ Publish: se il workflow non è
-// configurato nel DB, la pubblicazione di contenuto non chiama emit().
-// Il test lo crea programmaticamente e lo rimuove dopo.
-
-$db = eZDB::instance();
-
-// Verifica se esiste già un trigger post_publish connesso al workflow webhook
-$existingCheck = $db->arrayQuery(
-    "SELECT COUNT(*) as c FROM ezworkflow_event " .
-    "WHERE workflow_type_string = 'event_workflowwebhook' " .
-    "AND workflow_id IN (SELECT workflow_id FROM eztrigger WHERE name = 'post_publish')"
-);
-$workflowAlreadySetup = (int)($existingCheck[0]['c'] ?? 0) > 0;
-
-$testWorkflowId  = null;
-$testTriggerId   = null;
-
-if (!$workflowAlreadySetup) {
-    echo "Workflow post_publish non configurato — lo creo per il test...\n";
-
-    $now = time();
-
-    // INSERT ... RETURNING id è atomico su PostgreSQL: non dipende da LASTVAL()
-    // né da lastSerialID(), evitando problemi di sessione/connessione.
-    $wfRes = $db->arrayQuery(
-        "INSERT INTO ezworkflow (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
-        "VALUES (14, 14, $now, $now, 'E2E test post_publish webhook', 1, 1) RETURNING id"
-    );
-    $testWorkflowId = (int)($wfRes[0]['id'] ?? 0);
-
-    if ($testWorkflowId === 0) {
-        echo "[ERROR] INSERT INTO ezworkflow fallito (RETURNING id = 0)\n";
-        $script->shutdown(1);
-        exit(1);
-    }
-
-    // Evento workflow di tipo WorkflowWebHookType
-    $db->query(
-        "INSERT INTO ezworkflow_event (workflow_id, version, placement, workflow_type_string) " .
-        "VALUES ($testWorkflowId, 0, 1, 'event_workflowwebhook')"
-    );
-
-    // Connette il workflow al trigger post_publish
-    $trigRes = $db->arrayQuery(
-        "INSERT INTO eztrigger (module_name, function_name, connect_type, name, workflow_id) " .
-        "VALUES ('content', 'publish', 'a', 'post_publish', $testWorkflowId) RETURNING id"
-    );
-    $testTriggerId = (int)($trigRes[0]['id'] ?? 0);
-
-    if ($testTriggerId === 0) {
-        echo "[ERROR] INSERT INTO eztrigger fallito (RETURNING id = 0)\n";
-        $script->shutdown(1);
-        exit(1);
-    }
-
-    echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
-} else {
-    echo "Workflow post_publish già configurato nel DB\n";
-}
 
 // ── Step 1: leggi offset Kafka prima della pubblicazione ──────────────────────
 
@@ -460,7 +398,7 @@ if ($tenantId !== '' && $tenantId !== null) {
     echo "[INFO] TenantId non configurato — partition key null/empty atteso\n";
 }
 
-// ── Step 7: cleanup — cancella l'articolo e rimuove il workflow di test ───────
+// ── Step 7: cleanup — cancella l'articolo creato durante il test ─────────────
 
 if ($articleId !== null) {
     echo "\nCleanup: cancello articolo id=$articleId...\n";
@@ -473,16 +411,6 @@ if ($articleId !== null) {
     } else {
         echo "[WARN] DELETE /novita/notizie/$articleId → HTTP {$delResp['code']}\n";
     }
-}
-
-if ($testTriggerId !== null) {
-    $db->query("DELETE FROM eztrigger WHERE id = $testTriggerId");
-    echo "Trigger di test rimosso (id=$testTriggerId)\n";
-}
-if ($testWorkflowId !== null) {
-    $db->query("DELETE FROM ezworkflow_event WHERE workflow_id = $testWorkflowId");
-    $db->query("DELETE FROM ezworkflow WHERE id = $testWorkflowId");
-    echo "Workflow di test rimosso (id=$testWorkflowId)\n";
 }
 
 // ── Risultati ─────────────────────────────────────────────────────────────────
