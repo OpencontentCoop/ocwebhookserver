@@ -211,9 +211,13 @@ $articleJson = json_encode([
 
 $authHeader = 'Basic ' . base64_encode("$CMS_USER:$CMS_PASS");
 
-echo "POST /novita/notizie — titolo: \"$title\"\n";
+// La REST API è servita da index_rest.php sotto /api/openapi/...
+// (nginx: rewrite "^/api/(.*)$" → index_rest.php)
+// /novita/notizie senza prefisso va a index.php (view HTML).
+$apiPath = '/api/openapi/novita/notizie';
+echo "POST $apiPath — titolo: \"$title\"\n";
 
-$resp = http_request('POST', '/novita/notizie', [
+$resp = http_request('POST', $apiPath, [
     'Host'          => $APP_HOST,
     'Content-Type'  => 'application/json',
     'Accept'        => 'application/json',
@@ -402,7 +406,7 @@ if ($tenantId !== '' && $tenantId !== null) {
 
 if ($articleId !== null) {
     echo "\nCleanup: cancello articolo id=$articleId...\n";
-    $delResp = http_request('DELETE', '/novita/notizie/' . $articleId, [
+    $delResp = http_request('DELETE', '/api/openapi/novita/notizie/' . $articleId, [
         'Host'          => $APP_HOST,
         'Authorization' => $authHeader,
     ], null, $APP_HOST);
