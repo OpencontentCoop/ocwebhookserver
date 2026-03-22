@@ -138,13 +138,19 @@ function http_request(string $method, string $path, array $headers, ?string $bod
     curl_setopt_array($ch, [
         CURLOPT_URL            => 'http://127.0.0.1' . $path,
         CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+        // Resolve APP_HOST → 127.0.0.1 so we can follow 3xx redirects that
+        // contain the public hostname without leaving the container network.
+        CURLOPT_RESOLVE        => ["$host:80:127.0.0.1"],
         CURLOPT_HTTPHEADER     => $curlHeaders,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HEADER         => true,
         CURLOPT_CUSTOMREQUEST  => $method,
         CURLOPT_POSTFIELDS     => $body,
         CURLOPT_TIMEOUT        => 30,
-        CURLOPT_FOLLOWLOCATION => false,
+        // Follow 301/302 redirects but keep POST method + body
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_POSTREDIR      => 3,    // CURL_REDIR_POST_301 | CURL_REDIR_POST_302
+        CURLOPT_MAXREDIRS      => 3,
     ]);
     $raw     = curl_exec($ch);
     $code    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -210,7 +216,14 @@ if (!$workflowAlreadySetup) {
         "INSERT INTO ezworkflow (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
         "VALUES (14, 14, " . time() . ", " . time() . ", 'E2E test post_publish webhook', 1, 1)"
     );
-    $testWorkflowId = $db->lastSerialID('ezworkflow', 'id');
+    $res = $db->arrayQuery("SELECT LASTVAL() AS id");
+    $testWorkflowId = (int)($res[0]['id'] ?? 0);
+
+    if ($testWorkflowId === 0) {
+        echo "[ERROR] Impossibile ottenere l'ID del workflow appena creato\n";
+        $script->shutdown(1);
+        exit(1);
+    }
 
     // Crea l'evento workflow di tipo WorkflowWebHookType
     $db->query(
@@ -223,9 +236,14 @@ if (!$workflowAlreadySetup) {
         "INSERT INTO eztrigger (module_name, function_name, connect_type, name, workflow_id) " .
         "VALUES ('content', 'publish', 'a', 'post_publish', $testWorkflowId)"
     );
-    $testTriggerId = $db->lastSerialID('eztrigger', 'id');
+    $res2 = $db->arrayQuery("SELECT LASTVAL() AS id");
+    $testTriggerId = (int)($res2[0]['id'] ?? 0);
 
-    echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
+    if ($testTriggerId === 0) {
+        echo "[ERROR] Impossibile ottenere l'ID del trigger appena creato\n";
+    } else {
+        echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
+    }
 } else {
     echo "Workflow post_publish già configurato nel DB\n";
 }
