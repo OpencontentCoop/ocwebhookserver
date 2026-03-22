@@ -211,39 +211,42 @@ $testTriggerId   = null;
 if (!$workflowAlreadySetup) {
     echo "Workflow post_publish non configurato — lo creo per il test...\n";
 
-    // Crea il workflow
-    $db->query(
+    $now = time();
+
+    // INSERT ... RETURNING id è atomico su PostgreSQL: non dipende da LASTVAL()
+    // né da lastSerialID(), evitando problemi di sessione/connessione.
+    $wfRes = $db->arrayQuery(
         "INSERT INTO ezworkflow (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
-        "VALUES (14, 14, " . time() . ", " . time() . ", 'E2E test post_publish webhook', 1, 1)"
+        "VALUES (14, 14, $now, $now, 'E2E test post_publish webhook', 1, 1) RETURNING id"
     );
-    $res = $db->arrayQuery("SELECT LASTVAL() AS id");
-    $testWorkflowId = (int)($res[0]['id'] ?? 0);
+    $testWorkflowId = (int)($wfRes[0]['id'] ?? 0);
 
     if ($testWorkflowId === 0) {
-        echo "[ERROR] Impossibile ottenere l'ID del workflow appena creato\n";
+        echo "[ERROR] INSERT INTO ezworkflow fallito (RETURNING id = 0)\n";
         $script->shutdown(1);
         exit(1);
     }
 
-    // Crea l'evento workflow di tipo WorkflowWebHookType
+    // Evento workflow di tipo WorkflowWebHookType
     $db->query(
         "INSERT INTO ezworkflow_event (workflow_id, version, placement, workflow_type_string) " .
         "VALUES ($testWorkflowId, 0, 1, 'event_workflowwebhook')"
     );
 
-    // Connette il workflow al trigger post_publish di eZ Publish
-    $db->query(
+    // Connette il workflow al trigger post_publish
+    $trigRes = $db->arrayQuery(
         "INSERT INTO eztrigger (module_name, function_name, connect_type, name, workflow_id) " .
-        "VALUES ('content', 'publish', 'a', 'post_publish', $testWorkflowId)"
+        "VALUES ('content', 'publish', 'a', 'post_publish', $testWorkflowId) RETURNING id"
     );
-    $res2 = $db->arrayQuery("SELECT LASTVAL() AS id");
-    $testTriggerId = (int)($res2[0]['id'] ?? 0);
+    $testTriggerId = (int)($trigRes[0]['id'] ?? 0);
 
     if ($testTriggerId === 0) {
-        echo "[ERROR] Impossibile ottenere l'ID del trigger appena creato\n";
-    } else {
-        echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
+        echo "[ERROR] INSERT INTO eztrigger fallito (RETURNING id = 0)\n";
+        $script->shutdown(1);
+        exit(1);
     }
+
+    echo "Workflow creato (id=$testWorkflowId), trigger connesso (id=$testTriggerId)\n";
 } else {
     echo "Workflow post_publish già configurato nel DB\n";
 }
