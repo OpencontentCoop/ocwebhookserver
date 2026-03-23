@@ -240,6 +240,7 @@ if ($message !== null) {
         'Header ce_time è una data ISO 8601 valida'
     );
     assert_eq($headers['content-type'] ?? '', 'application/json', 'Header content-type');
+    assert_eq($headers['oc_retry_count'] ?? null, '0', 'Header oc_retry_count = "0" (prima consegna diretta)');
 
     echo "\nce_type:   " . ($headers['ce_type']   ?? '(missing)') . "\n";
     echo "ce_source: " . ($headers['ce_source'] ?? '(missing)') . "\n";

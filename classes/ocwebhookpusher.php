@@ -80,10 +80,12 @@ class OCWebHookPusher
                         $payload = $formatter->format($payload);
                     }
 
+                    $retryCount = (int)OCWebHookFailure::count(OCWebHookFailure::definition(), ['job_id' => $jobId]);
                     $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
                     $sent = $kafkaProducer->produce(
                         $job->attribute('trigger_identifier'),
-                        $payload
+                        $payload,
+                        $retryCount
                     );
 
                     $job = OCWebHookJob::fetch($jobId);

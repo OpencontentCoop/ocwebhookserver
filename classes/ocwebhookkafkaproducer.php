@@ -82,9 +82,10 @@ class OCWebHookKafkaProducer
      *
      * @param string     $triggerIdentifier
      * @param array|null $payload           Payload formattato (entity.meta.type_id e version usati)
+     * @param int        $retryCount        Numero di tentativi precedenti falliti (0 = prima consegna)
      * @return array
      */
-    private function buildHeaders($triggerIdentifier, $payload = null)
+    private function buildHeaders($triggerIdentifier, $payload = null, $retryCount = 0)
     {
         // Determina entity type: type_id dal payload > ceTypeMap[trigger] > trigger
         $typeId = is_array($payload) && isset($payload['entity']['meta']['type_id'])
@@ -111,15 +112,16 @@ class OCWebHookKafkaProducer
         $ceSource = 'urn:opencity:' . $this->productSlug . ':' . $this->tenantId;
 
         return [
-            'ce_specversion' => '1.0',
-            'ce_id'          => self::generateUuid(),
-            'ce_type'        => $ceType,
-            'ce_source'      => $ceSource,
-            'ce_time'        => gmdate('Y-m-d\TH:i:s\Z'),
-            'content-type'   => 'application/json',
-            'oc_app_name'    => $this->appName,
-            'oc_app_version' => $this->appVersion,
-            'oc_operation'   => $operation,
+            'ce_specversion'  => '1.0',
+            'ce_id'           => self::generateUuid(),
+            'ce_type'         => $ceType,
+            'ce_source'       => $ceSource,
+            'ce_time'         => gmdate('Y-m-d\TH:i:s\Z'),
+            'content-type'    => 'application/json',
+            'oc_app_name'     => $this->appName,
+            'oc_app_version'  => $this->appVersion,
+            'oc_operation'    => $operation,
+            'oc_retry_count'  => (string)(int)$retryCount,
         ];
     }
 
@@ -128,9 +130,10 @@ class OCWebHookKafkaProducer
      *
      * @param string $triggerIdentifier usato per gli header CloudEvents
      * @param array  $payload
+     * @param int    $retryCount        Numero di tentativi precedenti falliti (0 = prima consegna diretta)
      * @return bool  true se l'ack è arrivato entro FlushTimeoutMs, false altrimenti
      */
-    public function produce($triggerIdentifier, $payload)
+    public function produce($triggerIdentifier, $payload, $retryCount = 0)
     {
         if (empty($this->tenantId)) {
             eZDebug::writeError(
@@ -152,7 +155,7 @@ class OCWebHookKafkaProducer
                 0,
                 json_encode($payload),
                 $messageKey,
-                $this->buildHeaders($triggerIdentifier, $payload)
+                $this->buildHeaders($triggerIdentifier, $payload, $retryCount)
             );
 
             $result = $this->producer->flush($this->flushTimeout);

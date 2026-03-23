@@ -250,6 +250,11 @@ if ($message !== null) {
         isset($headers['oc_app_version']) && $headers['oc_app_version'] === '1.5.0',
         'Header oc_app_version set'
     );
+    assert_eq(
+        $headers['oc_retry_count'] ?? null,
+        '0',
+        'Header oc_retry_count = "0" for first delivery (no retries)'
+    );
 
     // Verify ce_id is a valid UUID v4 format
     $uuid = $headers['ce_id'] ?? '';
@@ -393,7 +398,34 @@ if ($message4 !== null) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 7: produce() returns false when broker is unreachable
+// TEST 7: oc_retry_count header reflects retry attempt number
+// ─────────────────────────────────────────────────────────────────────────────
+
+set_ini($BROKER, $TOPIC, $FLUSH_MS);
+
+$startOffset5 = get_end_offset($BROKER, $TOPIC);
+$producer5    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$payload5     = ['entity' => ['meta' => ['id' => 'test-tenant-uuid-1234:77', 'type_id' => 'service', 'version' => 2], 'data' => []]];
+$sent5        = $producer5->produce('post_publish', $payload5, 3);
+
+assert_true($sent5, 'Retry count: produce() with retryCount=3 returns true');
+
+$message5 = consume_message($BROKER, $TOPIC, $startOffset5, 5000);
+if ($message5 !== null) {
+    $headers5 = (array)($message5->headers ?? []);
+    assert_eq(
+        $headers5['oc_retry_count'] ?? null,
+        '3',
+        'Header oc_retry_count = "3" when retryCount=3 passed to produce()'
+    );
+    assert_true(
+        isset($headers5['ce_type']) && $headers5['ce_type'] === 'it.opencity.website.service.updated',
+        'Retry count: ce_type correctly computed alongside retry count'
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 8: produce() returns false when broker is unreachable
 // ─────────────────────────────────────────────────────────────────────────────
 
 set_ini('127.0.0.1:19999', $TOPIC, 500);  // short flush timeout to speed up test
