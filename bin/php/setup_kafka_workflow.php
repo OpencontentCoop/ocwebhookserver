@@ -13,6 +13,7 @@
  *   ocwebhook_trigger_link — collega il webhook al trigger post_publish_ocopendata
  *
  * Idempotente: le parti già presenti vengono saltate.
+ * Aggiorna l'URL kafka:// se broker/topic sono cambiati nella configurazione.
  *
  * Uso:
  *   php extension/ocwebhookserver/bin/php/setup_kafka_workflow.php \
@@ -41,151 +42,23 @@ if ($ini->variable('KafkaSettings', 'Enabled') !== 'enabled') {
     exit(0);
 }
 
-// ── Verifica idempotente ──────────────────────────────────────────────────────
-
-$db = eZDB::instance();
-
-$check = $db->arrayQuery(
-    "SELECT COUNT(*) AS c FROM ezworkflow_event " .
-    "WHERE workflow_type_string = 'event_workflowwebhook' " .
-    "AND workflow_id IN (" .
-    "  SELECT workflow_id FROM eztrigger " .
-    "  WHERE module_name = 'content' AND function_name = 'publish' AND connect_type = 'a'" .
-    ")"
-);
-
-$workflowExists = (int)($check[0]['c'] ?? 0) > 0;
-
-if ($workflowExists) {
-    echo "[ok] Workflow post_publish → WorkflowWebHookType già configurato\n";
-}
-
-// ── Crea il workflow (se non esiste) ─────────────────────────────────────────
-//
-// eZDB::arrayQuery() accetta solo SELECT: non usiamo INSERT...RETURNING né
-// lastSerialID(). Dopo l'INSERT recuperiamo l'ID con SELECT WHERE name.
-
-$now  = time();
-$name = 'OCWebHookServer - post_publish';
-
-if ($workflowExists) {
-    // salta la creazione del workflow, vai direttamente al webhook
-    goto setup_webhook;
-}
-
-$db->query(
-    "INSERT INTO ezworkflow " .
-    "  (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
-    "VALUES (14, 14, $now, $now, '$name', 1, 1)"
-);
-
-$wfRes = $db->arrayQuery(
-    "SELECT id FROM ezworkflow WHERE name = '$name' ORDER BY id DESC LIMIT 1"
-);
-$workflowId = (int)($wfRes[0]['id'] ?? 0);
-
-if ($workflowId === 0) {
-    echo "[error] INSERT INTO ezworkflow fallito — vedere i log di eZ Publish\n";
-    $script->shutdown(1);
-    exit(1);
-}
-
-// ── Crea l'evento workflow (WorkflowWebHookType) ──────────────────────────────
-
-$db->query(
-    "INSERT INTO ezworkflow_event " .
-    "  (workflow_id, version, placement, workflow_type_string) " .
-    "VALUES ($workflowId, 0, 1, 'event_workflowwebhook')"
-);
-
-// ── Connette il workflow al trigger post_publish di eZ Publish ────────────────
-
-$db->query(
-    "INSERT INTO eztrigger " .
-    "  (module_name, function_name, connect_type, name, workflow_id) " .
-    "VALUES ('content', 'publish', 'a', 'post_publish', $workflowId)"
-);
-
-$trigRes = $db->arrayQuery(
-    "SELECT id FROM eztrigger " .
-    "WHERE workflow_id = $workflowId AND name = 'post_publish' LIMIT 1"
-);
-$triggerId = (int)($trigRes[0]['id'] ?? 0);
-
-if ($triggerId === 0) {
-    echo "[error] INSERT INTO eztrigger fallito\n";
-    $script->shutdown(1);
-    exit(1);
-}
-
-echo "[ok] Workflow configurato: ezworkflow.id=$workflowId, eztrigger.id=$triggerId\n";
-
-// ── Registra il webhook kafka:// nell'outbox ──────────────────────────────────
-setup_webhook:
+// ── Leggi configurazione Kafka ────────────────────────────────────────────────
 
 $brokers = $ini->variable('KafkaSettings', 'Brokers');
 $brokers = is_array($brokers) ? $brokers : [];
 $topic   = $ini->variable('KafkaSettings', 'Topic');
 
-if (empty($brokers) || empty($topic)) {
-    echo "[skip] KafkaSettings.Brokers o Topic non configurati — webhook kafka:// non creato\n";
-    $script->shutdown(0);
-    exit(0);
+// ── Esegui setup tramite service ─────────────────────────────────────────────
+
+require_once dirname(__FILE__) . '/../../classes/ocwebhookkafkasetupservice.php';
+
+$service = new OCWebHookKafkaSetupService(eZDB::instance());
+$result  = $service->run($brokers, $topic);
+
+foreach ($result['log'] as $line) {
+    echo $line . "\n";
 }
 
-$kafkaUrl        = 'kafka://' . implode(',', $brokers) . '/' . $topic;
-$webhookName     = 'kafka-' . $topic;
-$triggerIdentifier = 'post_publish_ocopendata';
-
-// Cerca un webhook kafka:// già collegato a questo trigger (indipendentemente dall'URL)
-$existingWebhook = $db->arrayQuery(
-    "SELECT w.id, w.url FROM ocwebhook w " .
-    "JOIN ocwebhook_trigger_link tl ON tl.webhook_id = w.id " .
-    "WHERE tl.trigger_identifier = '" . $db->escapeString($triggerIdentifier) . "' " .
-    "AND w.url LIKE 'kafka://%' LIMIT 1"
-);
-
-if (!empty($existingWebhook)) {
-    $webhookId  = (int)$existingWebhook[0]['id'];
-    $currentUrl = $existingWebhook[0]['url'];
-    if ($currentUrl === $kafkaUrl) {
-        echo "[ok] Webhook kafka:// già presente e aggiornato (id=$webhookId, url=$kafkaUrl)\n";
-    } else {
-        $db->query(
-            "UPDATE ocwebhook SET url = '" . $db->escapeString($kafkaUrl) . "', " .
-            "name = '" . $db->escapeString($webhookName) . "' " .
-            "WHERE id = $webhookId"
-        );
-        echo "[ok] Webhook kafka:// aggiornato (id=$webhookId): $currentUrl → $kafkaUrl\n";
-    }
-    $script->shutdown(0);
-    exit(0);
-}
-
-$db->query(
-    "INSERT INTO ocwebhook (name, url, enabled, retry_enabled, method, content_type, created_at) " .
-    "VALUES (" .
-    "'" . $db->escapeString($webhookName) . "', " .
-    "'" . $db->escapeString($kafkaUrl) . "', " .
-    "1, 1, 'post', 'application/json', $now)"
-);
-
-$whRow = $db->arrayQuery(
-    "SELECT id FROM ocwebhook WHERE url = '" . $db->escapeString($kafkaUrl) . "' LIMIT 1"
-);
-$webhookId = (int)($whRow[0]['id'] ?? 0);
-
-if ($webhookId === 0) {
-    echo "[error] INSERT INTO ocwebhook fallito\n";
-    $script->shutdown(1);
-    exit(1);
-}
-
-$db->query(
-    "INSERT INTO ocwebhook_trigger_link (webhook_id, trigger_identifier) " .
-    "VALUES ($webhookId, '" . $db->escapeString($triggerIdentifier) . "')"
-);
-
-echo "[ok] Webhook kafka:// registrato: ocwebhook.id=$webhookId, url=$kafkaUrl\n";
-
-$script->shutdown(0);
+$exitCode = $result['ok'] ? 0 : 1;
+$script->shutdown($exitCode);
+exit($exitCode);

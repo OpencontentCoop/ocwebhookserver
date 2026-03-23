@@ -74,7 +74,9 @@ class OCWebHookPusher
                     if (is_array($payload) && isset($payload['metadata'])) {
                         $siteaccess = eZSiteAccess::current();
                         $siteaccessName = isset($siteaccess['name']) ? $siteaccess['name'] : 'default';
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, getenv('EZ_INSTANCE') ?: null);
+                        $kafkaIni = eZINI::instance('webhook.ini');
+                        $tenantId = $kafkaIni->variable('KafkaSettings', 'TenantId') ?: (getenv('EZ_INSTANCE') ?: null);
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $tenantId);
                         $payload = $formatter->format($payload);
                     }
 

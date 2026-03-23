@@ -2,98 +2,229 @@
 
 ## Scopo dell'estensione
 
-`ocwebhookserver` è l'estensione eZ Publish che gestisce la consegna di webhook HTTP al verificarsi di eventi sul CMS (es. pubblicazione di contenuti). Ogni istanza OpenCity (~500 tenant) ha i propri webhook configurati nel backend.
+`ocwebhookserver` è l'estensione eZ Publish che gestisce la consegna di eventi (webhook HTTP e Kafka) al verificarsi di eventi sul CMS (es. pubblicazione di contenuti). Ogni istanza OpenCity (~500 tenant) ha i propri webhook configurati nel backend.
 
-## Architettura webhook HTTP (originale)
+## Architettura — Transactional Outbox Pattern
+
+Tutti gli endpoint (HTTP e Kafka) usano lo stesso pattern di outbox transazionale:
 
 ```
-Pubblicazione contenuto
+Pubblicazione/cancellazione contenuto
         │
         ▼
-WorkflowWebHookType::execute()   ← workflow eZ Publish
+WorkflowWebHookType::execute()   ← workflow eZ Publish (post_publish)
         │
         ▼
-OCWebHookEmitter::emit()
+OCWebHookEmitter::emit($triggerIdentifier, $payload, $queueHandler)
         │
-        ├─ crea OCWebHookJob (PENDING) nel DB    ← outbox transazionale
+        ├─ per ogni webhook abilitato per il trigger:
+        │   ├─ Crea OCWebHookJob con url = endpoint (http:// o kafka://)
+        │   ├─ Scrive job PENDING nel DB              ← outbox transazionale
+        │   └─ Aggiungi job alla lista
         │
-        └─ OCWebHookQueue::pushJobs()->execute()  ← delivery HTTP sincrona
-                                                    oppure cron fallback
+        └─ OCWebHookQueue::pushJobs($jobs)->execute()
+                │
+                ├─ endpoint http://  → HTTP POST sincrono
+                └─ endpoint kafka:// → OCWebHookKafkaProducer::produce()
+                                        acks=all, flush timeout 2s
 ```
 
-Il cron eZ Publish (`webhook_unfrequently` / `webhook_frequently`) riprende i job `PENDING` rimasti non consegnati.
+**Nessun percorso Kafka separato.** Ogni webhook è un record nella tabella `ocwebhook` con un campo `url`. Il prefisso `kafka://` distingue i webhook Kafka da quelli HTTP. Il pusher (`OCWebHookPusher`) interpreta il prefisso e usa il producer corretto.
+
+Il cron eZ Publish (`webhook_unfrequently` / `webhook_frequently`) riprende i job `PENDING` rimasti non consegnati — sia HTTP che Kafka.
 
 ---
 
-## Integrazione Kafka (feature/kafka-producer)
+## Tipi di evento (trigger)
 
-### Problema da risolvere
+| Trigger | Identifier | Quando | Note |
+|---------|-----------|--------|------|
+| `PostPublishWebHookTrigger` | `post_publish_ocopendata` | Post-publish workflow | Sia creazione che aggiornamento contenuto |
+| `DeleteWebHookTrigger` | `delete_ocopendata` | Pre-delete workflow | Cancellazione contenuto |
 
-Con 500 tenant, il polling DB per ogni worker HTTP non scala bene per eventi ad alta frequenza. La soluzione è far produrre gli eventi **direttamente su Kafka** al momento della pubblicazione, senza introdurre nuovi processi o tabelle.
+**Attenzione — creazione vs aggiornamento**: il trigger `post_publish_ocopendata` si attiva sia per la prima pubblicazione (creazione, `currentVersion=1`) che per le successive (aggiornamento, `currentVersion>1`). Il payload include `entity.meta.version` che permette al consumer di distinguere i due casi. Se servono eventi distinti nel Kafka topic, occorre:
+1. Aggiungere due nuovi trigger (`create_ocopendata`, `update_ocopendata`)
+2. Modificare `PostPublishWebHookTrigger` o creare un `WorkflowWebHookType` dedicato che biforca in base a `currentVersion`
 
-### Design della soluzione
+---
 
-#### Pattern: Transactional Outbox
+## Formato evento Kafka (CloudEvents)
 
+I messaggi Kafka seguono il formato CloudEvents 1.0 con header:
+
+| Header | Esempio | Note |
+|--------|---------|------|
+| `ce_specversion` | `1.0` | Stringa, non intero |
+| `ce_id` | UUID v4 | Generato per ogni messaggio |
+| `ce_type` | `it.opencity.cms.post_publish_ocopendata` | `productSlug` + `trigger_identifier` |
+| `ce_source` | `urn:opencity:cms:opencity` | `productSlug` + `tenantId` |
+| `ce_time` | `2026-03-23T17:00:00Z` | UTC, ISO 8601 |
+| `content-type` | `application/json` | |
+| `oc_app_name` | `OpenCity CMS` | Configurabile |
+| `oc_app_version` | `1.2.3` | Letto da `Composer\InstalledVersions` se non configurato |
+
+### Payload (corpo del messaggio)
+
+```json
+{
+  "entity": {
+    "meta": {
+      "id":           "bugliano:228",
+      "siteaccess":   "frontend",
+      "object_id":    "228",
+      "remote_id":    "abc123...",
+      "type_id":      "article",
+      "version":      3,
+      "languages":    ["ita-IT"],
+      "name":         "Titolo del contenuto",
+      "site_url":     "https://www.comune.example.it",
+      "published_at": "2026-01-15T10:00:00Z",
+      "updated_at":   "2026-03-23T17:00:00Z"
+    },
+    "data": {
+      "ita-IT": {
+        "titolo":    "Titolo del contenuto",
+        "abstract":  "...",
+        "body":      "<p>...</p>"
+      }
+    }
+  }
+}
 ```
-Pubblicazione contenuto
-        │
-        ▼
-OCWebHookEmitter::emit()
-        │
-        ├─ [1] Scrive OCWebHookJob PENDING in DB  ← outbox, garanzia durabilità
-        │
-        ├─ [2] Se Kafka abilitato e job > 0:
-        │       OCWebHookKafkaProducer::produce()
-        │       │
-        │       ├─ ack ricevuto → cancella i job → return  ← percorso Kafka (fast path)
-        │       │
-        │       └─ timeout/errore → i job rimangono PENDING  ← fallback automatico
-        │
-        └─ [3] Se Kafka disabilitato o produce fallito:
-                OCWebHookQueue::pushJobs()->execute()         ← percorso HTTP (fallback)
+
+**Message key**: `entity.meta.id` (es. `bugliano:228`) — `{TenantId}:{objectId}`, garantisce ordinamento per oggetto all'interno del tenant.
+
+**Mapping campi (canonical field names)**: configurabile per content type in `[KafkaCeTypeMap]` e `[KafkaFieldMap_<content_type>]` in `webhook.ini`.
+
+**Normalizzazione relation items**: i campi camelCase vengono convertiti in snake_case:
+- `remoteId` → `remote_id`
+- `classIdentifier` → `class_identifier`
+- `mainNodeId` → `main_node_id`
+
+---
+
+## Setup automatico per tenant (setup_kafka_workflow.php)
+
+Con ~500 tenant, la configurazione manuale non è praticabile. Lo script `bin/php/setup_kafka_workflow.php` è idempotente e viene eseguito dall'installer per ogni tenant.
+
+### Cosa fa
+
+1. **Controlla** `KafkaSettings.Enabled` — se non `enabled`, esce senza fare nulla
+2. **Crea** (se non esiste) workflow eZ Publish `post_publish → WorkflowWebHookType`
+3. **Crea** (se non esiste) o **aggiorna** (se broker/topic cambiati) il record `ocwebhook` con `url = kafka://...` e il link `ocwebhook_trigger_link`
+
+### Idempotenza e gestione cambio config
+
+| Scenario | Comportamento |
+|----------|--------------|
+| Prima esecuzione | Crea workflow + webhook |
+| Riesecuzione (nessuna modifica) | Salta tutto, log `[ok] già configurato` |
+| Cambio broker o topic | Aggiorna `url` nel record `ocwebhook` esistente |
+| Kafka non abilitato | Esce con `[skip]`, nessuna modifica |
+
+La logica è estratta in `classes/ocwebhookkafkasetupservice.php` per consentire test unitari.
+
+### Uso
+
+```bash
+php extension/ocwebhookserver/bin/php/setup_kafka_workflow.php --allow-root-user -sbackend
 ```
 
-**Nessuna nuova tabella DB.** La tabella `ocwebhook_job` esistente serve come outbox transazionale: il job è scritto **prima** di produrre su Kafka e cancellato **solo** su ack confermato.
+### Test
 
-#### Perché `acks=all` è sufficiente su MSK
+```bash
+php extension/ocwebhookserver/tests/SetupKafkaWorkflowTest.php
+```
 
-AWS MSK è configurato con `min.insync.replicas=2` su cluster a 4 broker. Con `acks=all` il producer aspetta che almeno 2 broker abbiano scritto il messaggio prima di dare ack. Questo è sufficiente come garanzia di durabilità lato Kafka — non serve un consumer di conferma.
+---
 
-#### Timeout e comportamento leggero
+## Configurazione INI (via env var Docker)
 
-- **`FlushTimeoutMs=2000`** (2 secondi): MSK in condizioni normali risponde in poche decine di ms. Il timeout è volutamente basso per non appesantire il processo di pubblicazione. Se MSK non risponde entro 2s, il job rimane PENDING e viene ripreso dal cron.
-- **Fallback via cron eZ Publish**: i job PENDING non cancellati vengono processati dal cron `webhook_unfrequently` esistente. `CronRetryAfterSeconds=300` evita race condition con il path sincrono (evita che il cron riprenda job che Kafka sta ancora completando).
-- **Nessun nuovo cron**: si riutilizzano i cronjob eZ Publish esistenti. Non serve un processo separato.
-
-#### Ordering dei messaggi
-
-Il `$triggerIdentifier` (es. `post_publish`) viene usato come **message key** Kafka. Questo garantisce che tutti gli eventi dello stesso tipo vadano sulla stessa partizione, preservando l'ordinamento per tipo di evento.
-
-#### Abilitazione per ambiente
-
-Kafka è **disabilitato per default** (`Enabled=disabled` in `webhook.ini`). Si abilita per ambiente tramite variabili d'ambiente Docker seguendo la convenzione del progetto:
+Le impostazioni si configurano **esclusivamente tramite variabili d'ambiente** seguendo la convenzione del repo CMS (`EZINI_file__Sezione__Chiave`). Gli array usano il suffisso `__N` (doppio underscore):
 
 ```yaml
-# docker-compose.yml (produzione MSK)
+# Produzione (MSK)
 EZINI_webhook__KafkaSettings__Enabled: 'enabled'
-EZINI_webhook__KafkaSettings__Brokers_0: 'broker1.msk.amazonaws.com:9092'
-EZINI_webhook__KafkaSettings__Brokers_1: 'broker2.msk.amazonaws.com:9092'
+EZINI_webhook__KafkaSettings__Brokers__0: 'broker1.msk.amazonaws.com:9092'
+EZINI_webhook__KafkaSettings__Brokers__1: 'broker2.msk.amazonaws.com:9092'
 EZINI_webhook__KafkaSettings__Topic: 'cms'
 EZINI_webhook__KafkaSettings__FlushTimeoutMs: '2000'
+EZINI_webhook__KafkaSettings__TenantId: 'nome-comune'
+EZINI_webhook__KafkaSettings__ProductSlug: 'cms'
 
-# docker-compose.override.yml (sviluppo locale con Redpanda)
+# Sviluppo locale (Redpanda via docker-compose.events.yml)
 EZINI_webhook__KafkaSettings__Enabled: 'enabled'
-EZINI_webhook__KafkaSettings__Brokers_0: 'redpanda:9092'
+EZINI_webhook__KafkaSettings__Brokers__0: 'redpanda:9092'
 EZINI_webhook__KafkaSettings__Topic: 'cms'
 EZINI_webhook__KafkaSettings__FlushTimeoutMs: '2000'
+EZINI_webhook__KafkaSettings__TenantId: 'opencity'
 ```
 
-**Non creare mai file `webhook.ini.append.php` statici** per impostazioni che variano per ambiente.
+**Attenzione**: `$ini->variable('KafkaSettings', 'Brokers')` restituisce l'array iniettato correttamente. `$ini->group('KafkaSettings')` NON restituisce i valori iniettati via env var — usare sempre `variable()`.
 
-#### Requisito infrastrutturale
+**Non creare mai file `webhook.ini.append.php` statici** per configurazioni che variano per ambiente.
 
-La libreria C `php-rdkafka` deve essere installata nell'immagine PHP. Il Dockerfile del CMS aggiunge l'estensione durante la build:
+---
+
+## Ambiente di sviluppo locale (Redpanda)
+
+Il repo CMS include `docker-compose.events.yml` per avviare Redpanda localmente:
+
+```bash
+# Avvia CMS + Redpanda
+docker compose -f docker-compose.yml -f docker-compose.events.yml up -d
+
+# Monitora messaggi Kafka
+OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
+  -X brokers=redpanda:9092 --offset start --num 10 2>&1); echo "$OUT"
+
+# UI grafica
+# https://redpanda-opencity.localtest.me
+```
+
+Dopo aver pubblicato un contenuto nel CMS, eseguire il setup:
+
+```bash
+OUT=$(docker exec cms-app-1 /usr/local/bin/php \
+  extension/ocwebhookserver/bin/php/setup_kafka_workflow.php \
+  --allow-root-user -sbackend 2>&1); echo "$OUT"
+```
+
+> **Nota CLI PHP**: usare sempre la forma `OUT=$(docker exec ... 2>&1); echo "$OUT"` — la forma senza cattura dell'output può restituire exit=1 anche se il comando ha successo.
+
+---
+
+## File rilevanti
+
+| File | Ruolo |
+|------|-------|
+| `classes/ocwebhookemitter.php` | Entry point; scrive l'outbox, chiama la queue |
+| `classes/ocwebhookkafkaproducer.php` | Wrapper php-rdkafka; produce con CloudEvents header |
+| `classes/ocwebhookkafkapayloadformatter.php` | Converte payload ocopendata → formato canonico entity |
+| `classes/ocwebhookkafkafieldmap.php` | Mapping nomi campo per content type |
+| `classes/ocwebhookkafkasetupservice.php` | Logica setup idempotente workflow+webhook (testabile) |
+| `classes/ocwebhookpusher.php` | Pusher: gestisce http:// e kafka:// |
+| `eventtypes/event/workflowwebhook/workflowwebhooktype.php` | Workflow eZ che chiama `OCWebHookEmitter::emit()` |
+| `bin/php/setup_kafka_workflow.php` | Script CLI setup per tenant (usa OCWebHookKafkaSetupService) |
+| `settings/webhook.ini` | Default INI (Kafka disabilitato) |
+| `tests/SetupKafkaWorkflowTest.php` | Test unitari setup workflow (3 scenari) |
+
+---
+
+## Come aggiungere un nuovo trigger
+
+1. Creare classe in `classes/triggers/` che implementa `OCWebHookTriggerInterface`
+2. Registrarla in `settings/webhook.ini` sotto `[TriggersSettings]`
+3. Chiamare `OCWebHookEmitter::emit($identifier, $payload, $queueHandler)` nel punto corretto
+4. Per Kafka: aggiungere il mapping `ce_type` in `[KafkaCeTypeMap]` se si vuole un nome evento diverso dall'identifier
+
+Kafka riceverà automaticamente i messaggi del nuovo trigger senza modifiche al producer.
+
+---
+
+## Requisito infrastrutturale
+
+La libreria C `php-rdkafka` deve essere installata nell'immagine PHP:
 
 ```dockerfile
 RUN apk add --no-cache --virtual .build-deps autoconf g++ make librdkafka-dev \
@@ -103,58 +234,4 @@ RUN apk add --no-cache --virtual .build-deps autoconf g++ make librdkafka-dev \
     && apk add --no-cache librdkafka
 ```
 
-Se `rdkafka` non è caricato, `OCWebHookKafkaProducer::isEnabled()` restituisce `false` e il sistema degrada silenziosamente sul path HTTP — zero breaking changes.
-
----
-
-## File rilevanti
-
-| File | Ruolo |
-|------|-------|
-| `classes/ocwebhookemitter.php` | Entry point; scrive l'outbox, chiama Kafka, fallback HTTP |
-| `classes/ocwebhookkafkaproducer.php` | Wrapper singleton php-rdkafka; produce e flush |
-| `eventtypes/event/workflowwebhook/workflowwebhooktype.php` | Workflow eZ che chiama `OCWebHookEmitter::emit()` on post_publish |
-| `settings/webhook.ini` | Default INI (Kafka disabilitato); override via env var Docker |
-| `classes/ocwebhookqueue.php` | Queue HTTP per il path di fallback |
-
----
-
-## Ambiente di sviluppo locale
-
-Il `docker-compose.override.yml` del repo CMS (`opencontent/cms`) avvia:
-- **Redpanda** (Kafka-compatible single node) su `redpanda:9092`
-- **Redpanda Console** su `https://redpanda-opencity.localtest.me` (UI per ispezionare messaggi)
-
-Per testare la produzione di messaggi senza pubblicare contenuto:
-
-```bash
-# Produce direttamente con rdkafka (verifica che l'estensione funzioni)
-OUT=$(docker exec cms-app-1 /usr/local/bin/php -r '
-$conf = new RdKafka\Conf();
-$conf->set("bootstrap.servers", "redpanda:9092");
-$conf->set("acks", "all");
-$p = new RdKafka\Producer($conf);
-$t = $p->newTopic("cms");
-$t->produce(RD_KAFKA_PARTITION_UA, 0, json_encode(["test"=>true,"ts"=>date("c")]), "post_publish");
-echo $p->flush(2000) === RD_KAFKA_RESP_ERR_NO_ERROR ? "SUCCESS" : "FAIL";
-' 2>&1); echo $OUT
-
-# Consuma messaggi con rpk
-OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
-  --brokers redpanda:9092 --offset start --num 5 2>&1); echo "$OUT"
-```
-
-> **Nota CLI PHP**: in questo ambiente `docker exec cms-app-1 php ...` restituisce exit=1 a causa di come il tool cattura l'output. Usare la forma `OUT=$(docker exec cms-app-1 php -r '...' 2>&1); echo "$OUT"` che funziona correttamente.
-
----
-
-## Come aggiungere un nuovo trigger Kafka
-
-Il producer invia **tutti** i trigger sullo stesso topic `cms`, usando il `$triggerIdentifier` come message key. I consumer filtrano per tipo di evento leggendo il campo `trigger` nel payload (o la key del messaggio Kafka).
-
-Per aggiungere un nuovo trigger:
-1. Creare una classe che implementa `OCWebHookTriggerInterface` in `classes/triggers/`
-2. Registrarla in `settings/webhook.ini` sotto `[TriggersSettings]`
-3. Chiamare `OCWebHookEmitter::emit($newTrigger::IDENTIFIER, $payload, $queueHandler)` nel punto corretto del codice
-
-Kafka riceverà automaticamente i messaggi del nuovo trigger senza modifiche al producer.
+Se `rdkafka` non è installato, il sistema usa solo HTTP webhook — zero breaking changes.
