@@ -20,7 +20,8 @@
 | Redundant content-type prefix → removed | `event_title` → `title`, `event_abstract` → `abstract` |
 | Abbreviations → expanded | `alt_name` → `alternative_name`, `eu` → `eu_classification` |
 | Italian plural field names → English | `servizi_offerti` → `offered_services`, `deleghe` → `delegations` |
-| OntoPiA `has_*` fields → **unchanged** | `has_service_status`, `has_spatial_coverage`, `has_role`, `has_contact_point`, `has_online_contact_point`, `has_language`, `has_price_specification` |
+| OntoPiA/schema.org `has_*` fields → **unchanged** | Only fields whose `has_*` name comes from a published ontology (CPSV-AP, OntoPiA Core, schema.org): `has_service_status`, `has_spatial_coverage`, `has_role`, `has_contact_point`, `has_online_contact_point`, `has_language`, `has_price_specification`, `has_address`, `has_office`, `has_public_event_typology`. Proprietary CMS `has_*` names with no ontology backing **are renamed** (see `has_code` → `code`, `has_video` → `video_url`, `has_related_services` → `related_services`, `has_channel_type` → `channel_type`). |
+| Singleton `note` fields → plural `notes` | `note` → `notes` (consistency across all content types) |
 | schema.org personal names → **unchanged** | `given_name`, `family_name`, `legal_name` |
 | Unmapped fields → pass through as-is | no rename, no error, no log warning |
 
@@ -129,7 +130,8 @@ Others (`legal_name`, `topics`, `abstract`, `image`, `main_function`, `hold_empl
 
 | eZ attribute | Canonical name | Reason |
 |---|---|---|
-| `has_video` | `video_url` | ezstring containing URL, not OntoPiA `has_*` |
+| `has_video` | `video_url` | ezstring URL field; proprietary `has_*` (not in any published ontology) |
+| `has_related_services` | `related_services` | Proprietary reverse-relation `has_*`, not OntoPiA |
 | `sede_di` | `headquarters_of` | Italian |
 
 Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `has_related_services`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`) already canonical.
@@ -243,7 +245,7 @@ No renames needed. (`name`, `description`, `image`, `internal_location`, `locati
 
 ### `offer`
 
-OntoPiA vocabulary fields (`has_price_specification`, `has_currency`, `has_eligible_user`) are unchanged. `description` already canonical. `start_time` type not verified in installer source — if confirmed ezdate during implementation, rename to `start_date`; if ezdatetime, rename to `start_at`.
+OntoPiA vocabulary fields (`has_price_specification`, `has_currency`, `has_eligible_user`) are unchanged. `description` already canonical. `start_time` type could not be verified from installer source — moved to **Out of Scope / Future Work**.
 
 ---
 
@@ -255,7 +257,11 @@ No renames needed. (`name`, `short_name`, `abstract`, `description`, `image`)
 
 ### `channel`
 
-No renames needed. (`object`, `has_channel_type`, `abstract`, `description`, `channel_url`)
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `has_channel_type` | `channel_type` | Proprietary `has_*`, not in any published ontology |
+
+Others (`object`, `abstract`, `description`, `channel_url`) already canonical.
 
 ---
 
@@ -313,6 +319,7 @@ Content types `article_with_projects`, `event_with_related`, `organization_with_
 'opening_hours_specification_with_related' => self::$maps['opening_hours_specification'],
 'pagina_sito_with_dataset'                 => self::$maps['pagina_sito'],
 // Note: variants may add extra fields not in the base map; those pass through as-is.
+//       Extra variant fields have been reviewed and confirmed already canonical (English, snake_case).
 ```
 
 Any additional fields in the variant that are already canonical need no entry.
@@ -359,7 +366,9 @@ This is a **breaking change** for any consumer that reads field names from `enti
 - Consumer code must be updated in the same release window.
 - A `ce_type` version suffix (e.g. `content.published.v2`) is **not** introduced because the canonical names are a correction, not a schema version bump; adding version suffixes would complicate consumer routing permanently.
 
-If future external consumers exist before this change ships, the team must coordinate a coordinated cut-over with those consumers or introduce a versioned `ce_type` suffix at that point.
+If future external consumers exist before this change ships, the team must coordinate a cut-over with those consumers or introduce a versioned `ce_type` suffix at that point.
+
+**Consumer mismatch:** if a consumer receives a message with new canonical field names while still expecting the old names, it will see `null`/missing values for renamed fields. Since the Kafka topic is append-only and messages are not re-emitted, there is no automatic recovery — the consumer must be updated before or at the same time as this change is deployed. A coordinated deploy window is required.
 
 ---
 
@@ -370,3 +379,7 @@ If future external consumers exist before this change ships, the team must coord
 - REST API field names (ocopenapi extension)
 - eZ Publish class definitions in the installer
 - Per-instance INI override of the mapping (future work if needed)
+
+## Future Work
+
+- **`offer.start_time`**: eZ type could not be confirmed from installer YAML. To be resolved in implementation: verify type, then rename to `start_date` (ezdate) or `start_at` (ezdatetime).
