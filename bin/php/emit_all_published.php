@@ -105,12 +105,12 @@ $countResult = $db->arrayQuery($countQuery);
 $total = (int)($countResult[0]['count'] ?? 0);
 
 $query = "
-    SELECT DISTINCT ezcontentobject.id
+    SELECT DISTINCT ezcontentobject.id, ezcontentobject.published
     FROM ezcontentobject
     JOIN ezcontentclass ON ezcontentclass.id = ezcontentobject.contentclass_id
     WHERE ezcontentobject.status = 1
     $classFilter
-    ORDER BY ezcontentobject.id
+    ORDER BY ezcontentobject.published ASC, ezcontentobject.id ASC
     $limitClause $offsetClause
 ";
 
