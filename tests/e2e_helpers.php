@@ -245,7 +245,7 @@ function e2e_results($script): void
  * Verifica le parti comuni del payload Kafka: meta, data, CloudEvents headers, partition key.
  * Restituisce [$meta, $data, $primaryLang] per verifiche specifiche del content type.
  */
-function e2e_verify_kafka_message(RdKafka\Message $message, string $expectedTitle): array
+function e2e_verify_kafka_message(RdKafka\Message $message, string $expectedTitle, string $titleField = 'title'): array
 {
     echo "\nVerifica payload:\n";
 
@@ -285,11 +285,11 @@ function e2e_verify_kafka_message(RdKafka\Message $message, string $expectedTitl
     );
 
     $primaryLang = $meta['languages'][0] ?? 'ita-IT';
-    assert_true(isset($data[$primaryLang]['title']), "entity.data.$primaryLang.title presente");
+    assert_true(isset($data[$primaryLang][$titleField]), "entity.data.$primaryLang.$titleField presente");
     assert_eq(
-        $data[$primaryLang]['title'] ?? null,
+        $data[$primaryLang][$titleField] ?? null,
         $expectedTitle,
-        "entity.data.$primaryLang.title = titolo inviato"
+        "entity.data.$primaryLang.$titleField = titolo inviato"
     );
 
     echo "\nVerifica header CloudEvents:\n";
@@ -332,15 +332,12 @@ function e2e_verify_kafka_message(RdKafka\Message $message, string $expectedTitl
 
     echo "\nVerifica partition key:\n";
     $tenantId = eZINI::instance('webhook.ini')->variable('KafkaSettings', 'TenantId');
-    if ($tenantId !== '' && $tenantId !== null) {
-        assert_eq($message->key, $tenantId, "Partition key = TenantId (\"$tenantId\")");
-    } else {
-        assert_true(
-            $message->key === null || $message->key === '',
-            'Partition key è null/empty quando TenantId non è configurato',
-            'got: ' . var_export($message->key, true)
-        );
-    }
+    assert_true(
+        !empty($tenantId),
+        'KafkaSettings.TenantId configurato (richiesto per produzione eventi)',
+        'TenantId è vuoto — configurare EZINI_webhook__KafkaSettings__TenantId'
+    );
+    assert_eq($message->key, $tenantId, "Partition key = TenantId (\"$tenantId\")");
 
     return [$meta, $data, $primaryLang];
 }

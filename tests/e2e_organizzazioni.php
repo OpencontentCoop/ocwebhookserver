@@ -104,7 +104,7 @@ if ($message === null) {
 
 // ── Verifica payload ──────────────────────────────────────────────────────────
 
-e2e_verify_kafka_message($message, $title);
+e2e_verify_kafka_message($message, $title, 'legal_name');
 
 // ── Salva artifact ────────────────────────────────────────────────────────────
 
