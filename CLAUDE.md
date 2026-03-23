@@ -56,12 +56,13 @@ I messaggi Kafka seguono il formato CloudEvents 1.0 con header:
 |--------|---------|------|
 | `ce_specversion` | `1.0` | Stringa, non intero |
 | `ce_id` | UUID v4 | Generato per ogni messaggio |
-| `ce_type` | `it.opencity.cms.post_publish_ocopendata` | `productSlug` + `trigger_identifier` |
+| `ce_type` | `it.opencity.cms.article.created` | `productSlug.{type_id}.{created\|updated\|deleted}` |
 | `ce_source` | `urn:opencity:cms:opencity` | `productSlug` + `tenantId` |
 | `ce_time` | `2026-03-23T17:00:00Z` | UTC, ISO 8601 |
 | `content-type` | `application/json` | |
 | `oc_app_name` | `OpenCity CMS` | Configurabile |
 | `oc_app_version` | `1.2.3` | Letto da `Composer\InstalledVersions` se non configurato |
+| `oc_operation` | `created` | Operazione: `created` / `updated` / `deleted` |
 
 ### Payload (corpo del messaggio)
 
@@ -93,6 +94,12 @@ I messaggi Kafka seguono il formato CloudEvents 1.0 con header:
 ```
 
 **Message key**: `entity.meta.id` (es. `bugliano:228`) — `{TenantId}:{objectId}`, garantisce ordinamento per oggetto all'interno del tenant.
+
+**Formato `ce_type`**: `it.opencity.{productSlug}.{type_id}.{created|updated|deleted}`
+- `type_id` = `entity.meta.type_id` dal payload (es. `article`, `event`, `document`)
+- operazione: `created` (version=1), `updated` (version>1), `deleted` (trigger delete)
+- `ceTypeMap` in `webhook.ini` può mappare `type_id` → nome canonico (es. `article → news`)
+- fallback: se non c'è `type_id`, usa `ceTypeMap[triggerIdentifier]` o il trigger stesso
 
 **Mapping campi (canonical field names)**: configurabile per content type in `[KafkaCeTypeMap]` e `[KafkaFieldMap_<content_type>]` in `webhook.ini`.
 

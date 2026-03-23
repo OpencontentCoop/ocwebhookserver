@@ -66,29 +66,48 @@ class OCWebHookKafkaProducer
     /**
      * Costruisce gli header CloudEvents per il messaggio Kafka.
      *
-     * L'operazione (create/update/delete) viene codificata nel ce_type come suffisso:
-     *   it.opencity.{productSlug}.{ceTypeSuffix}.{create|update|delete}
+     * Formato ce_type: it.opencity.{productSlug}.{entityType}.{operation_past_tense}
+     * es. it.opencity.cms.article.created / it.opencity.cms.event.updated
+     *
+     * entityType:
+     *   1. entity.meta.type_id del payload (es. "article", "event")
+     *   2. ceTypeMap[triggerIdentifier] come fallback
+     *   3. triggerIdentifier come ultimo fallback
+     *
+     * Operazione (past tense):
+     *   - trigger contiene "delete" → "deleted"
+     *   - entity.meta.version == 1  → "created"
+     *   - entity.meta.version > 1   → "updated"
+     *   - nessuna versione nel payload → "updated"
      *
      * @param string     $triggerIdentifier
-     * @param array|null $payload           Payload formattato (entity.meta.version usato per l'operazione)
+     * @param array|null $payload           Payload formattato (entity.meta.type_id e version usati)
      * @return array
      */
     private function buildHeaders($triggerIdentifier, $payload = null)
     {
-        $ceTypeSuffix = isset($this->ceTypeMap[$triggerIdentifier])
-            ? $this->ceTypeMap[$triggerIdentifier]
-            : $triggerIdentifier;
-
-        // Determina l'operazione: delete, create (version=1) o update (version>1)
-        if (strpos($triggerIdentifier, 'delete') !== false) {
-            $operation = 'delete';
-        } elseif (is_array($payload) && isset($payload['entity']['meta']['version'])) {
-            $operation = ((int)$payload['entity']['meta']['version'] === 1) ? 'create' : 'update';
+        // Determina entity type: type_id dal payload > ceTypeMap[trigger] > trigger
+        $typeId = is_array($payload) && isset($payload['entity']['meta']['type_id'])
+            ? $payload['entity']['meta']['type_id']
+            : null;
+        if ($typeId !== null) {
+            $entityType = isset($this->ceTypeMap[$typeId]) ? $this->ceTypeMap[$typeId] : $typeId;
         } else {
-            $operation = 'update';
+            $entityType = isset($this->ceTypeMap[$triggerIdentifier])
+                ? $this->ceTypeMap[$triggerIdentifier]
+                : $triggerIdentifier;
         }
 
-        $ceType   = 'it.opencity.' . $this->productSlug . '.' . $ceTypeSuffix . '.' . $operation;
+        // Determina l'operazione al passato
+        if (strpos($triggerIdentifier, 'delete') !== false) {
+            $operation = 'deleted';
+        } elseif (is_array($payload) && isset($payload['entity']['meta']['version'])) {
+            $operation = ((int)$payload['entity']['meta']['version'] === 1) ? 'created' : 'updated';
+        } else {
+            $operation = 'updated';
+        }
+
+        $ceType   = 'it.opencity.' . $this->productSlug . '.' . $entityType . '.' . $operation;
         $ceSource = 'urn:opencity:' . $this->productSlug . ':' . $this->tenantId;
 
         return [

@@ -150,8 +150,8 @@ assert_eq(
 if ($message !== null) {
     $decoded = json_decode($message->payload, true);
     assert_true(
-        isset($decoded['entity']['meta']['id']) && $decoded['entity']['meta']['id'] === 'comune_it:42',
-        'Payload entity.meta.id matches'
+        isset($decoded['entity']['meta']['id']) && $decoded['entity']['meta']['id'] === 'test-tenant-uuid-1234:42',
+        'Payload entity.meta.id matches (tenantId:objectId)'
     );
     assert_true(
         isset($decoded['entity']['data']['it-IT']['title']),
@@ -171,12 +171,12 @@ if ($message !== null) {
         'Header ce_specversion = "1.0"'
     );
     assert_true(
-        isset($headers['ce_type']) && $headers['ce_type'] === 'it.opencity.website.content.published.create',
-        'Header ce_type resolved via KafkaCeTypeMap + .create (version=1)'
+        isset($headers['ce_type']) && $headers['ce_type'] === 'it.opencity.website.article.created',
+        'Header ce_type = productSlug.type_id.created (version=1, type_id=article)'
     );
     assert_true(
-        isset($headers['oc_operation']) && $headers['oc_operation'] === 'create',
-        'Header oc_operation = create (version=1)'
+        isset($headers['oc_operation']) && $headers['oc_operation'] === 'created',
+        'Header oc_operation = created (version=1)'
     );
     assert_true(
         isset($headers['ce_source']) && $headers['ce_source'] === 'urn:opencity:website:test-tenant-uuid-1234',
@@ -224,8 +224,8 @@ $message2 = consume_message($BROKER, $TOPIC, $startOffset2, 5000);
 if ($message2 !== null) {
     $headers2 = (array)($message2->headers ?? []);
     assert_true(
-        isset($headers2['ce_type']) && $headers2['ce_type'] === 'it.opencity.website.custom_trigger_xyz.update',
-        'ce_type uses raw trigger identifier as fallback + .update (no version in payload)'
+        isset($headers2['ce_type']) && $headers2['ce_type'] === 'it.opencity.website.custom_trigger_xyz.updated',
+        'ce_type uses raw trigger identifier as fallback (no type_id in payload) + .updated'
     );
 }
 

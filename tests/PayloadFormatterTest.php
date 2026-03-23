@@ -119,13 +119,13 @@ assert_eq($meta['site_url'],   'https://www.comune.example.it', 'entity.meta.sit
 
 assert_eq(
     $meta['published_at'],
-    date('c', $publishedTs),
-    'entity.meta.published_at is ISO 8601'
+    gmdate('Y-m-d\TH:i:s\Z', $publishedTs),
+    'entity.meta.published_at is ISO 8601 UTC'
 );
 assert_eq(
     $meta['updated_at'],
-    date('c', $modifiedTs),
-    'entity.meta.updated_at is ISO 8601'
+    gmdate('Y-m-d\TH:i:s\Z', $modifiedTs),
+    'entity.meta.updated_at is ISO 8601 UTC'
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ assert_true(
 assert_eq($data['it-IT']['title'],    'Titolo notizia',         'it-IT title content extracted');
 assert_eq($data['it-IT']['abstract'], 'Abstract della notizia', 'it-IT abstract content extracted');
 assert_eq($data['it-IT']['body'],     '<p>Corpo testo</p>',     'it-IT body content extracted');
-assert_null($data['it-IT']['image'],                            'it-IT null image content preserved');
+assert_eq($data['it-IT']['image'], [], 'it-IT null image content normalized to []');
 assert_eq($data['eng-GB']['title'],   'News title',             'eng-GB title content extracted');
 
 assert_true(
