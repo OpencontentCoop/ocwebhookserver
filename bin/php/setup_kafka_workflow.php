@@ -137,12 +137,27 @@ $kafkaUrl        = 'kafka://' . implode(',', $brokers) . '/' . $topic;
 $webhookName     = 'kafka-' . $topic;
 $triggerIdentifier = 'post_publish_ocopendata';
 
+// Cerca un webhook kafka:// già collegato a questo trigger (indipendentemente dall'URL)
 $existingWebhook = $db->arrayQuery(
-    "SELECT id FROM ocwebhook WHERE url = '" . $db->escapeString($kafkaUrl) . "' LIMIT 1"
+    "SELECT w.id, w.url FROM ocwebhook w " .
+    "JOIN ocwebhook_trigger_link tl ON tl.webhook_id = w.id " .
+    "WHERE tl.trigger_identifier = '" . $db->escapeString($triggerIdentifier) . "' " .
+    "AND w.url LIKE 'kafka://%' LIMIT 1"
 );
 
 if (!empty($existingWebhook)) {
-    echo "[ok] Webhook kafka:// già presente (id={$existingWebhook[0]['id']}, url=$kafkaUrl)\n";
+    $webhookId  = (int)$existingWebhook[0]['id'];
+    $currentUrl = $existingWebhook[0]['url'];
+    if ($currentUrl === $kafkaUrl) {
+        echo "[ok] Webhook kafka:// già presente e aggiornato (id=$webhookId, url=$kafkaUrl)\n";
+    } else {
+        $db->query(
+            "UPDATE ocwebhook SET url = '" . $db->escapeString($kafkaUrl) . "', " .
+            "name = '" . $db->escapeString($webhookName) . "' " .
+            "WHERE id = $webhookId"
+        );
+        echo "[ok] Webhook kafka:// aggiornato (id=$webhookId): $currentUrl → $kafkaUrl\n";
+    }
     $script->shutdown(0);
     exit(0);
 }
