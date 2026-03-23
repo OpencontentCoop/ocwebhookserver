@@ -6,11 +6,11 @@
  * Eseguire dall'interno del container:
  *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_persone.php
  *
- * Campi compilati: given_name, family_name, has_contact_point (contatto URI), has_role,
- *   abstract, competenze, deleghe, bio, notes
+ * Campi compilati: given_name, family_name, has_contact_point (contatto URI),
+ *   has_role (ruolo URI), abstract, competenze, deleghe, bio, notes
  * Campi richiesti (schema PublicPerson): given_name, family_name, has_contact_point, has_role
  *
- * SKIP se non disponibili: punti-di-contatto (has_contact_point)
+ * SKIP se non disponibili: punti-di-contatto (has_contact_point), ruoli (has_role)
  */
 
 require_once __DIR__ . '/e2e_helpers.php';
@@ -29,13 +29,21 @@ echo "Kafka offset before publish: $startOffset\n\n";
 echo "Cerco un punto di contatto disponibile (has_contact_point)...\n";
 $contattoUri = fetch_first_uri('/api/openapi/classificazioni/punti-di-contatto', $authHeader, $APP_HOST);
 
-if ($contattoUri === null) {
-    echo "\033[33m[SKIP]\033[0m Nessun punto di contatto disponibile nell'istanza\n";
+echo "Cerco un ruolo disponibile (has_role)...\n";
+$ruoloUri = fetch_first_uri('/api/openapi/amministrazione/ruoli', $authHeader, $APP_HOST);
+
+$missing = [];
+if ($contattoUri === null) $missing[] = 'punto-di-contatto';
+if ($ruoloUri === null)    $missing[] = 'ruolo';
+
+if (!empty($missing)) {
+    echo "\033[33m[SKIP]\033[0m Risorse non disponibili: " . implode(', ', $missing) . "\n";
     $script->shutdown(0);
     exit(0);
 }
 
-echo "Contatto URI: $contattoUri\n\n";
+echo "Contatto URI: $contattoUri\n";
+echo "Ruolo URI:    $ruoloUri\n\n";
 
 // ── Genera payload ────────────────────────────────────────────────────────────
 
@@ -51,7 +59,7 @@ $payload = json_encode([
     'given_name'        => $givenName,
     'family_name'       => $familyName,
     'has_contact_point' => [['uri' => $contattoUri]],
-    'has_role'          => true,
+    'has_role'          => [['uri' => $ruoloUri]],
     'abstract'          => 'Funzionario test creato dal sistema E2E — ' . $uniqueSuffix,
     'competenze'        => 'Competenze: ' . rand_words(6),
     'deleghe'           => 'Deleghe: ' . rand_words(4),
