@@ -95,7 +95,7 @@ class OCWebHookKafkaProducer
     public function produce($triggerIdentifier, $payload)
     {
         if (empty($this->tenantId)) {
-            eZDebug::writeCritical(
+            eZDebug::writeError(
                 'KafkaSettings.TenantId non configurato: evento Kafka non emesso per trigger ' . $triggerIdentifier . '. ' .
                 'Configurare EZINI_webhook__KafkaSettings__TenantId per abilitare la produzione.',
                 __CLASS__
