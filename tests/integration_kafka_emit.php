@@ -135,9 +135,8 @@ $webhook->setAttribute('retry_delay', 0);
 $webhook->store();
 $webhookId = $webhook->attribute('id');
 
-// Associa il trigger al webhook
-$db->query("INSERT INTO ocwebhook_trigger (webhook_id, trigger_identifier, filters)
-            VALUES ($webhookId, '$triggerIdentifier', '{}')");
+// Associa il trigger al webhook via API (usa ocwebhook_trigger_link, la tabella corretta)
+$webhook->setTriggers([['identifier' => $triggerIdentifier, 'filters' => '{}']]);
 
 echo "Created test webhook id=$webhookId url=$kafkaUrl\n\n";
 
@@ -250,7 +249,7 @@ if ($message !== null) {
 
 // ── Cleanup: rimuovi webhook e job di test ────────────────────────────────────
 
-$db->query("DELETE FROM ocwebhook_trigger WHERE webhook_id = $webhookId");
+$db->query("DELETE FROM ocwebhook_trigger_link WHERE webhook_id = $webhookId");
 $db->query("DELETE FROM ocwebhook_job WHERE webhook_id = $webhookId");
 $db->query("DELETE FROM ocwebhook WHERE id = $webhookId");
 echo "\nWebhook di test rimosso (id=$webhookId)\n";
