@@ -116,16 +116,51 @@ function set_ini(string $broker, string $topic, int $flushMs, array $extra = [])
 
 set_ini($BROKER, $TOPIC, $FLUSH_MS);
 
+// Realistic payload: all meta fields + multi-language data with mixed attribute types
 $payload = [
     'entity' => [
         'meta' => [
-            'id'         => 'test-tenant-uuid-1234:42',
-            'siteaccess' => 'comune_it',
-            'object_id'  => '42',
-            'type_id'    => 'article',
-            'version'    => 1,
+            'id'           => 'test-tenant-uuid-1234:42',
+            'siteaccess'   => 'comune_it',
+            'object_id'    => '42',
+            'remote_id'    => 'abc123remote456def',
+            'type_id'      => 'article',
+            'version'      => 1,
+            'languages'    => ['ita-IT', 'eng-GB'],
+            'name'         => 'Titolo della notizia di test',
+            'site_url'     => 'https://www.comune.example.it',
+            'published_at' => '2026-03-15T09:00:00Z',
+            'updated_at'   => '2026-03-23T18:00:00Z',
         ],
-        'data' => ['it-IT' => ['title' => 'Test notizia']],
+        'data' => [
+            'ita-IT' => [
+                'title'       => 'Titolo della notizia di test',
+                'abstract'    => 'Abstract della notizia di test per verifica payload completo',
+                'body'        => '<p>Corpo del testo con <strong>HTML</strong>.</p>',
+                'image'       => [],
+                'files'       => [],
+                'topics'      => [
+                    ['id' => '101', 'remote_id' => 'topic-abc', 'class_identifier' => 'tag', 'main_node_id' => '501', 'name' => 'Mobilità'],
+                    ['id' => '102', 'remote_id' => 'topic-def', 'class_identifier' => 'tag', 'main_node_id' => '502', 'name' => 'Ambiente'],
+                ],
+                'author'      => [
+                    ['id' => '77', 'remote_id' => 'ufficio-xyz', 'class_identifier' => 'office', 'main_node_id' => '310', 'name' => 'Ufficio Stampa'],
+                ],
+                'reading_time' => 0,
+                'video'        => null,
+            ],
+            'eng-GB' => [
+                'title'   => 'Test news article title',
+                'abstract' => 'Abstract of the test news article',
+                'body'    => '<p>Body text.</p>',
+                'image'   => [],
+                'files'   => [],
+                'topics'  => [
+                    ['id' => '101', 'remote_id' => 'topic-abc', 'class_identifier' => 'tag', 'main_node_id' => '501', 'name' => 'Mobility'],
+                ],
+                'author'  => [],
+            ],
+        ],
     ],
 ];
 
@@ -144,19 +179,32 @@ assert_eq(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 2: Payload matches what was sent
+// TEST 2: Payload round-trip — all meta fields and data structure preserved
 // ─────────────────────────────────────────────────────────────────────────────
 
 if ($message !== null) {
     $decoded = json_decode($message->payload, true);
-    assert_true(
-        isset($decoded['entity']['meta']['id']) && $decoded['entity']['meta']['id'] === 'test-tenant-uuid-1234:42',
-        'Payload entity.meta.id matches (tenantId:objectId)'
-    );
-    assert_true(
-        isset($decoded['entity']['data']['it-IT']['title']),
-        'Payload entity.data structure preserved'
-    );
+    $meta    = $decoded['entity']['meta'] ?? [];
+    $data    = $decoded['entity']['data'] ?? [];
+
+    assert_eq($meta['id'],           'test-tenant-uuid-1234:42',              'Payload entity.meta.id round-trip');
+    assert_eq($meta['remote_id'],    'abc123remote456def',                     'Payload entity.meta.remote_id round-trip');
+    assert_eq($meta['type_id'],      'article',                                'Payload entity.meta.type_id round-trip');
+    assert_eq($meta['version'],      1,                                        'Payload entity.meta.version round-trip');
+    assert_eq($meta['languages'],    ['ita-IT', 'eng-GB'],                     'Payload entity.meta.languages round-trip');
+    assert_eq($meta['name'],         'Titolo della notizia di test',           'Payload entity.meta.name round-trip');
+    assert_eq($meta['site_url'],     'https://www.comune.example.it',          'Payload entity.meta.site_url round-trip');
+    assert_eq($meta['published_at'], '2026-03-15T09:00:00Z',                  'Payload entity.meta.published_at round-trip');
+    assert_eq($meta['updated_at'],   '2026-03-23T18:00:00Z',                  'Payload entity.meta.updated_at round-trip');
+
+    assert_true(isset($data['ita-IT']) && isset($data['eng-GB']),              'Payload entity.data has both languages');
+    assert_eq($data['ita-IT']['title'],   'Titolo della notizia di test',      'Payload ita-IT title round-trip');
+    assert_eq($data['ita-IT']['image'],   [],                                   'Payload ita-IT empty image array preserved');
+    assert_eq($data['ita-IT']['video'],   null,                                 'Payload ita-IT null video preserved');
+    assert_eq(count($data['ita-IT']['topics']), 2,                             'Payload ita-IT topics (2 items) round-trip');
+    assert_eq($data['ita-IT']['topics'][0]['class_identifier'], 'tag',         'Payload relation item class_identifier preserved');
+    assert_eq($data['eng-GB']['title'],   'Test news article title',           'Payload eng-GB title round-trip');
+    assert_eq($data['eng-GB']['author'],  [],                                   'Payload eng-GB empty relation list preserved');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,14 +283,32 @@ if ($message2 !== null) {
 
 set_ini($BROKER, $TOPIC, $FLUSH_MS);
 
+// Realistic delete payload: all meta fields, version>1 (update scenario for the object being deleted)
 $deletePayload = [
     'entity' => [
         'meta' => [
-            'id'         => 'test-tenant-uuid-1234:42',
-            'type_id'    => 'article',
-            'version'    => 3,  // version is irrelevant for delete — must still be 'deleted'
+            'id'           => 'test-tenant-uuid-1234:42',
+            'siteaccess'   => 'comune_it',
+            'object_id'    => '42',
+            'remote_id'    => 'abc123remote456def',
+            'type_id'      => 'article',
+            'version'      => 3,  // version is irrelevant for delete — must still be 'deleted'
+            'languages'    => ['ita-IT'],
+            'name'         => 'Notizia da cancellare',
+            'site_url'     => 'https://www.comune.example.it',
+            'published_at' => '2026-01-10T08:00:00Z',
+            'updated_at'   => '2026-03-20T14:30:00Z',
         ],
-        'data' => [],
+        'data' => [
+            'ita-IT' => [
+                'title'    => 'Notizia da cancellare',
+                'abstract' => 'Abstract della notizia in fase di cancellazione',
+                'files'    => [],
+                'topics'   => [
+                    ['id' => '101', 'remote_id' => 'topic-abc', 'class_identifier' => 'tag', 'main_node_id' => '501'],
+                ],
+            ],
+        ],
     ],
 ];
 
@@ -280,14 +346,30 @@ if ($message3 !== null) {
 // TEST 6: delete trigger with version=1 → still deleted (version ignored)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Full payload for an event (different content type) with version=1
 $deletePayloadV1 = [
     'entity' => [
         'meta' => [
-            'id'      => 'test-tenant-uuid-1234:99',
-            'type_id' => 'event',
-            'version' => 1,  // version=1 would normally be 'created' — must be overridden by delete trigger
+            'id'           => 'test-tenant-uuid-1234:99',
+            'siteaccess'   => 'comune_it',
+            'object_id'    => '99',
+            'remote_id'    => 'event-remote-id-xyz',
+            'type_id'      => 'event',
+            'version'      => 1,  // version=1 would normally be 'created' — must be overridden by delete trigger
+            'languages'    => ['ita-IT'],
+            'name'         => 'Evento da cancellare',
+            'site_url'     => 'https://www.comune.example.it',
+            'published_at' => '2026-02-01T10:00:00Z',
+            'updated_at'   => '2026-02-01T10:00:00Z',
         ],
-        'data' => [],
+        'data' => [
+            'ita-IT' => [
+                'title'    => 'Evento da cancellare',
+                'abstract' => 'Evento creato e subito cancellato',
+                'image'    => [],
+                'files'    => [],
+            ],
+        ],
     ],
 ];
 

@@ -31,7 +31,8 @@ function assert_eq($a, $b, string $t, string $r = ''): void
         fail($t, sprintf("expected %s, got %s. %s", var_export($b, true), var_export($a, true), $r));
     }
 }
-function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : fail($t, $r); }
+function assert_true(bool $v, string $t, string $r = ''): void  { $v ? ok($t) : fail($t, $r); }
+function assert_false(bool $v, string $t, string $r = ''): void { (!$v) ? ok($t) : fail($t, $r); }
 function assert_null($v, string $t): void { $v === null ? ok($t) : fail($t, "expected null, got " . var_export($v, true)); }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -201,8 +202,15 @@ $payloadWithNullContent = [
         'it-IT' => [
             // relation list vuota (null content): deve diventare []
             'files'       => ['content' => null, 'type' => 'ezbinaryfilecollection'],
-            // relation list con item: rimane array
-            'attachments' => ['content' => [['id' => 1, 'name' => 'doc.pdf']], 'type' => 'ezbinaryfilecollection'],
+            // relation list con item con chiavi camelCase (formato ocopendata) → vanno normalizzate
+            'attachments' => ['content' => [
+                ['id' => 1, 'remoteId' => 'file-abc-123', 'classIdentifier' => 'file', 'mainNodeId' => '210', 'name' => 'Relazione annuale.pdf'],
+                ['id' => 2, 'remoteId' => 'file-def-456', 'classIdentifier' => 'file', 'mainNodeId' => '211', 'name' => 'Bilancio.pdf'],
+            ], 'type' => 'ezbinaryfilecollection'],
+            // relation items senza chiavi camelCase (già snake_case): pass-through
+            'topics'      => ['content' => [
+                ['id' => 101, 'remote_id' => 'topic-xyz', 'class_identifier' => 'tag', 'main_node_id' => '501'],
+            ], 'type' => 'eztags'],
             // campo testo: null resta null (non avvolto in content wrapper)
             'subtitle'    => null,
             // campo testo con valore stringa normale
@@ -215,10 +223,25 @@ $formatter4 = new OCWebHookKafkaPayloadFormatter('frontend', 'bugliano');
 $result4    = $formatter4->format($payloadWithNullContent);
 $data4      = $result4['entity']['data']['it-IT'];
 
-assert_eq($data4['files'],       [], 'Null content normalizzato a [] (lista vuota)');
-assert_eq($data4['attachments'], [['id' => 1, 'name' => 'doc.pdf']], 'Lista con item non modificata');
-assert_null($data4['subtitle'],     'Null grezzo (non content-wrapped) preservato come null');
-assert_eq($data4['title'],       'Titolo', 'Campo testo estratto correttamente');
+assert_eq($data4['files'],  [], 'Null content normalizzato a [] (lista vuota)');
+assert_null($data4['subtitle'], 'Null grezzo (non content-wrapped) preservato come null');
+assert_eq($data4['title'],  'Titolo', 'Campo testo estratto correttamente');
+
+// Relation items: chiavi camelCase normalizzate a snake_case
+assert_eq(count($data4['attachments']), 2, 'Relation list: 2 item preservati');
+assert_eq($data4['attachments'][0]['remote_id'],       'file-abc-123', 'remoteId → remote_id normalizzato');
+assert_eq($data4['attachments'][0]['class_identifier'], 'file',        'classIdentifier → class_identifier normalizzato');
+assert_eq($data4['attachments'][0]['main_node_id'],    '210',          'mainNodeId → main_node_id normalizzato');
+assert_eq($data4['attachments'][0]['name'],            'Relazione annuale.pdf', 'Campo senza rename preservato');
+assert_false(isset($data4['attachments'][0]['remoteId']),       'remoteId camelCase rimosso dopo normalizzazione');
+assert_false(isset($data4['attachments'][0]['classIdentifier']),'classIdentifier camelCase rimosso dopo normalizzazione');
+assert_false(isset($data4['attachments'][0]['mainNodeId']),     'mainNodeId camelCase rimosso dopo normalizzazione');
+assert_eq($data4['attachments'][1]['remote_id'], 'file-def-456', 'Secondo item: remote_id normalizzato');
+
+// Relation items già in snake_case: pass-through senza modifiche
+assert_eq($data4['topics'][0]['remote_id'],       'topic-xyz', 'snake_case remote_id pass-through');
+assert_eq($data4['topics'][0]['class_identifier'], 'tag',      'snake_case class_identifier pass-through');
+assert_eq($data4['topics'][0]['main_node_id'],    '501',       'snake_case main_node_id pass-through');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 8: ISO 8601 date strings (real ocopendata format uses date('c'))
