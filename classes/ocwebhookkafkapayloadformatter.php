@@ -73,9 +73,9 @@ class OCWebHookKafkaPayloadFormatter
             'name'         => $name,
             'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
             'published_at' => isset($metadata['published']) && $metadata['published'] !== null
-                                ? date('c', (int)$metadata['published']) : null,
+                                ? gmdate('Y-m-d\TH:i:s\Z', (int)$metadata['published']) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
-                                ? date('c', (int)$metadata['modified'])  : null,
+                                ? gmdate('Y-m-d\TH:i:s\Z', (int)$metadata['modified'])  : null,
         ];
 
         // Flatten attribute values per language: extract the "content" field from each attribute.
@@ -84,9 +84,14 @@ class OCWebHookKafkaPayloadFormatter
             $data[$lang] = [];
             if (is_array($attributes)) {
                 foreach ($attributes as $attrName => $attrValue) {
-                    $data[$lang][$attrName] = is_array($attrValue) && array_key_exists('content', $attrValue)
+                    $content = is_array($attrValue) && array_key_exists('content', $attrValue)
                         ? $attrValue['content']
                         : $attrValue;
+                    // Normalize camelCase keys in relation item lists
+                    if (is_array($content) && isset($content[0]) && is_array($content[0])) {
+                        $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
+                    }
+                    $data[$lang][$attrName] = $content;
                 }
             }
         }
@@ -104,5 +109,25 @@ class OCWebHookKafkaPayloadFormatter
         }
 
         return ['entity' => ['meta' => $meta, 'data' => $data]];
+    }
+
+    /**
+     * Normalize camelCase keys in a relation item (e.g. from ocopendata object relations).
+     *
+     * @param array $item
+     * @return array
+     */
+    private static function normalizeRelationItem(array $item)
+    {
+        static $renames = [
+            'remoteId'        => 'remote_id',
+            'classIdentifier' => 'class_identifier',
+            'mainNodeId'      => 'main_node_id',
+        ];
+        $result = [];
+        foreach ($item as $key => $value) {
+            $result[isset($renames[$key]) ? $renames[$key] : $key] = $value;
+        }
+        return $result;
     }
 }

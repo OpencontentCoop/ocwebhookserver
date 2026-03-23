@@ -78,7 +78,7 @@ class OCWebHookKafkaProducer
             'ce_id'          => self::generateUuid(),
             'ce_type'        => $ceType,
             'ce_source'      => $ceSource,
-            'ce_time'        => date('c'),
+            'ce_time'        => gmdate('Y-m-d\TH:i:s\Z'),
             'content-type'   => 'application/json',
             'oc_app_name'    => $this->appName,
             'oc_app_version' => $this->appVersion,
@@ -105,11 +105,15 @@ class OCWebHookKafkaProducer
 
         try {
             $topic = $this->producer->newTopic($this->topic);
+            $messageKey = (is_array($payload) && isset($payload['entity']['meta']['id']))
+                ? $payload['entity']['meta']['id']
+                : ($this->tenantId ?: null);
+
             $topic->producev(
                 RD_KAFKA_PARTITION_UA,
                 0,
                 json_encode($payload),
-                $this->tenantId ?: null,
+                $messageKey,
                 $this->buildHeaders($triggerIdentifier)
             );
 
