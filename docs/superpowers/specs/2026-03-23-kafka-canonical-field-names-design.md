@@ -15,7 +15,7 @@
 | English only — no Italian words | `data_protocollazione` → `protocollation_date` |
 | `snake_case` | already enforced everywhere |
 | `ezdate` fields → `_date` suffix | `dead_line` → `deadline_date`, `issued` → `issued_date` |
-| `ezdatetime` fields → `_at` suffix | `start_time` (datetime) → `start_at` |
+| `ezdatetime` fields → `_at` suffix | `modified_at` (ezdatetime) → `modified_at` |
 | Single identifier strings → `_id` suffix | `id_comunicato` → `notice_id` |
 | Redundant content-type prefix → removed | `event_title` → `title`, `event_abstract` → `abstract` |
 | Abbreviations → expanded | `alt_name` → `alternative_name`, `eu` → `eu_classification` |
@@ -93,7 +93,7 @@ All other fields (`title`, `content_type`, `abstract`, `topics`, `image`, `body`
 
 | eZ attribute | Canonical name | Reason |
 |---|---|---|
-| `has_code` | `code` | Not OntoPiA `has_*`; simplify |
+| `has_code` | `code` | Not an OntoPiA/schema.org term (it is a CMS-proprietary field for document codes such as DOI, ISBN, deed number); simplify |
 | `protocollo` | `protocol_number` | Italian |
 | `data_protocollazione` | `protocollation_date` | Italian + ezdate |
 
@@ -109,7 +109,7 @@ Others (`name`, `document_type`, `topics`, `abstract`, `full_description`, `imag
 | `short_event_title` | `short_title` | Remove redundant prefix |
 | `event_abstract` | `abstract` | Remove redundant prefix |
 
-Others (`has_public_event_typology`, `identifier`, `time_interval`, `topics`, `description`, `image`) already canonical.
+Others (`has_public_event_typology`, `identifier`, `topics`, `description`, `image`) already canonical. `time_interval` is a custom `ocevent` composite type — it does not map to a plain ezdate/ezdatetime, so no `_date`/`_at` suffix applies; it passes through as-is.
 
 ---
 
@@ -167,8 +167,8 @@ No renames needed. All attributes (`type`, `name`, `identifier`, `other_service_
 
 | eZ attribute | Canonical name | Reason |
 |---|---|---|
-| `eu` | `eu_classification` | Cryptic abbreviation |
-| `data_themes_eurovocs` | `eurovoc_themes` | Remove `data_` prefix, simplify |
+| `eu` | `eu_classification` | Cryptic abbreviation; expanded to describe the European classification field |
+| `data_themes_eurovocs` | `eurovoc_themes` | Legacy compound name; simplified to the standard EuroVoc vocabulary term |
 
 Others (`name`, `managed_by_area`, `managed_by_political_body`, `type`, `description`, `theme`, `image`, `abstract`, `icon`, `layout`, `help`, `show_topic_children`) already canonical.
 
@@ -188,9 +188,9 @@ Others (`title`, `abstract`, `theme`, `format`, `license`, `resources`, `downloa
 
 ### `pagina_sito` (Pagine del sito)
 
-| eZ attribute | Canonical name | Reason |
-|---|---|---|
-| `publish_date` | `published_date` | Align with `article.published_date` |
+| eZ attribute | eZ type | Canonical name | Reason |
+|---|---|---|---|
+| `publish_date` | ezdate | `published_date` | Align with `article.published_date`; ezdate → `_date` confirmed |
 
 Others (`name`, `short_name`, `menu_name`, `abstract`, `description`, `image`, `show_children`, `layout`, `icon`, `show_topics`, `show_search_form`, `tag_menu`, `show_tag_cards`) already canonical.
 
@@ -243,7 +243,7 @@ No renames needed. (`name`, `description`, `image`, `internal_location`, `locati
 
 ### `offer`
 
-No renames needed. OntoPiA vocabulary: `has_price_specification`, `has_currency`, `has_eligible_user`. Others (`description`, `start_time`) already canonical.
+OntoPiA vocabulary fields (`has_price_specification`, `has_currency`, `has_eligible_user`) are unchanged. `description` already canonical. `start_time` type not verified in installer source — if confirmed ezdate during implementation, rename to `start_date`; if ezdatetime, rename to `start_at`.
 
 ---
 
@@ -284,16 +284,16 @@ Others (`name`, `opening_hours`, `closure`, `place`) already canonical.
 
 ### `time_indexed_role`
 
-| eZ attribute | Canonical name | Reason |
-|---|---|---|
-| `compensi` | `compensations` | Italian |
-| `importi` | `amounts` | Italian |
-| `start_time` | `start_date` | ezdate → `_date` (not datetime) |
-| `end_time` | `end_date` | ezdate → `_date` |
-| `data_insediamento` | `inauguration_date` | Italian + ezdate |
-| `incarico_dirigenziale` | `executive_position` | Italian |
-| `ruolo_principale` | `primary_role` | Italian |
-| `priorita` | `priority` | Italian (missing accent in identifier) |
+| eZ attribute | eZ type | Canonical name | Reason |
+|---|---|---|---|
+| `compensi` | ezxmltext | `compensations` | Italian |
+| `importi` | ezxmltext | `amounts` | Italian |
+| `start_time` | ezdate | `start_date` | Italian-style date field; ezdate → `_date` suffix |
+| `end_time` | ezdate | `end_date` | ezdate → `_date` suffix |
+| `data_insediamento` | ezdate | `inauguration_date` | Italian + ezdate → `_date` |
+| `incarico_dirigenziale` | ezboolean | `executive_position` | Italian |
+| `ruolo_principale` | ezboolean | `primary_role` | Italian |
+| `priorita` | ezinteger | `priority` | Italian (missing accent in identifier) |
 
 Others (`label`, `person`, `role`, `type`, `for_entity`, `atto_nomina`, `competences`, `delegations`, `organizational_position`, `notes`) already canonical.
 
@@ -312,6 +312,7 @@ Content types `article_with_projects`, `event_with_related`, `organization_with_
 'public_service_with_related'              => self::$maps['public_service'],
 'opening_hours_specification_with_related' => self::$maps['opening_hours_specification'],
 'pagina_sito_with_dataset'                 => self::$maps['pagina_sito'],
+// Note: variants may add extra fields not in the base map; those pass through as-is.
 ```
 
 Any additional fields in the variant that are already canonical need no entry.
@@ -345,6 +346,20 @@ tests/
 **Coverage priority:** `article`, `document`, `event`, `organization`, `place`, `public_person`, `public_service`, `time_indexed_role`, `opening_hours_specification`, `file`. Remaining content types added incrementally.
 
 **Invariant tested:** fields absent from the map pass through unchanged (regression guard for new attributes).
+
+---
+
+## Backward Compatibility
+
+This is a **breaking change** for any consumer that reads field names from `entity.data` by their eZ Publish identifier (e.g. `data_protocollazione`, `event_title`).
+
+**Cut-over strategy:** the rename is introduced as a single release with no dual-name transition period. Rationale:
+
+- The Kafka topic is consumed by internal OpenCity platform services only (no third-party integrations at the time of writing).
+- Consumer code must be updated in the same release window.
+- A `ce_type` version suffix (e.g. `content.published.v2`) is **not** introduced because the canonical names are a correction, not a schema version bump; adding version suffixes would complicate consumer routing permanently.
+
+If future external consumers exist before this change ships, the team must coordinate a coordinated cut-over with those consumers or introduce a versioned `ce_type` suffix at that point.
 
 ---
 
