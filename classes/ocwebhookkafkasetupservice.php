@@ -206,22 +206,16 @@ class OCWebHookKafkaSetupService
     public static function setupFromIni($stepInstaller = null)
     {
         $ini     = eZINI::instance('webhook.ini');
-        $enabled = $ini->hasVariable('KafkaSettings', 'Enabled')
-            ? $ini->variable('KafkaSettings', 'Enabled')
-            : 'disabled';
+        $enabled = $ini->variable('KafkaSettings', 'Enabled');
 
         if ($enabled !== 'enabled') {
             return;
         }
 
-        $brokers = $ini->hasVariable('KafkaSettings', 'Brokers')
-            ? $ini->variable('KafkaSettings', 'Brokers')
-            : [];
-        $brokers = is_array($brokers) ? array_filter($brokers) : [];
+        $brokers = $ini->variable('KafkaSettings', 'Brokers');
+        $brokers = is_array($brokers) ? array_filter(array_values($brokers)) : [];
 
-        $topic = $ini->hasVariable('KafkaSettings', 'Topic')
-            ? $ini->variable('KafkaSettings', 'Topic')
-            : '';
+        $topic = (string)$ini->variable('KafkaSettings', 'Topic');
 
         $service = new self(eZDB::instance());
         $result  = $service->run($brokers, $topic);
