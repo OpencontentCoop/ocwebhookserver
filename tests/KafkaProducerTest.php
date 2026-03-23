@@ -119,10 +119,11 @@ set_ini($BROKER, $TOPIC, $FLUSH_MS);
 $payload = [
     'entity' => [
         'meta' => [
-            'id'         => 'comune_it:42',
+            'id'         => 'test-tenant-uuid-1234:42',
             'siteaccess' => 'comune_it',
             'object_id'  => '42',
             'type_id'    => 'article',
+            'version'    => 1,
         ],
         'data' => ['it-IT' => ['title' => 'Test notizia']],
     ],
@@ -138,8 +139,8 @@ $message = consume_message($BROKER, $TOPIC, $startOffset, 5000);
 assert_true($message !== null, 'Message arrived on Kafka topic after produce()');
 assert_eq(
     $message !== null ? $message->key : null,
-    'test-tenant-uuid-1234',
-    'Message partition key equals TenantId'
+    'test-tenant-uuid-1234:42',
+    'Message partition key equals entity.meta.id (tenantId:objectId)'
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,8 +171,12 @@ if ($message !== null) {
         'Header ce_specversion = "1.0"'
     );
     assert_true(
-        isset($headers['ce_type']) && $headers['ce_type'] === 'it.opencity.website.content.published',
-        'Header ce_type resolved via KafkaCeTypeMap'
+        isset($headers['ce_type']) && $headers['ce_type'] === 'it.opencity.website.content.published.create',
+        'Header ce_type resolved via KafkaCeTypeMap + .create (version=1)'
+    );
+    assert_true(
+        isset($headers['oc_operation']) && $headers['oc_operation'] === 'create',
+        'Header oc_operation = create (version=1)'
     );
     assert_true(
         isset($headers['ce_source']) && $headers['ce_source'] === 'urn:opencity:website:test-tenant-uuid-1234',
@@ -219,8 +224,8 @@ $message2 = consume_message($BROKER, $TOPIC, $startOffset2, 5000);
 if ($message2 !== null) {
     $headers2 = (array)($message2->headers ?? []);
     assert_true(
-        isset($headers2['ce_type']) && $headers2['ce_type'] === 'it.opencity.website.custom_trigger_xyz',
-        'ce_type uses raw trigger identifier as fallback'
+        isset($headers2['ce_type']) && $headers2['ce_type'] === 'it.opencity.website.custom_trigger_xyz.update',
+        'ce_type uses raw trigger identifier as fallback + .update (no version in payload)'
     );
 }
 

@@ -66,15 +66,29 @@ class OCWebHookKafkaProducer
     /**
      * Costruisce gli header CloudEvents per il messaggio Kafka.
      *
-     * @param string $triggerIdentifier
+     * L'operazione (create/update/delete) viene codificata nel ce_type come suffisso:
+     *   it.opencity.{productSlug}.{ceTypeSuffix}.{create|update|delete}
+     *
+     * @param string     $triggerIdentifier
+     * @param array|null $payload           Payload formattato (entity.meta.version usato per l'operazione)
      * @return array
      */
-    private function buildHeaders($triggerIdentifier)
+    private function buildHeaders($triggerIdentifier, $payload = null)
     {
         $ceTypeSuffix = isset($this->ceTypeMap[$triggerIdentifier])
             ? $this->ceTypeMap[$triggerIdentifier]
             : $triggerIdentifier;
-        $ceType = 'it.opencity.' . $this->productSlug . '.' . $ceTypeSuffix;
+
+        // Determina l'operazione: delete, create (version=1) o update (version>1)
+        if (strpos($triggerIdentifier, 'delete') !== false) {
+            $operation = 'delete';
+        } elseif (is_array($payload) && isset($payload['entity']['meta']['version'])) {
+            $operation = ((int)$payload['entity']['meta']['version'] === 1) ? 'create' : 'update';
+        } else {
+            $operation = 'update';
+        }
+
+        $ceType   = 'it.opencity.' . $this->productSlug . '.' . $ceTypeSuffix . '.' . $operation;
         $ceSource = 'urn:opencity:' . $this->productSlug . ':' . $this->tenantId;
 
         return [
@@ -86,6 +100,7 @@ class OCWebHookKafkaProducer
             'content-type'   => 'application/json',
             'oc_app_name'    => $this->appName,
             'oc_app_version' => $this->appVersion,
+            'oc_operation'   => $operation,
         ];
     }
 
@@ -118,7 +133,7 @@ class OCWebHookKafkaProducer
                 0,
                 json_encode($payload),
                 $messageKey,
-                $this->buildHeaders($triggerIdentifier)
+                $this->buildHeaders($triggerIdentifier, $payload)
             );
 
             $result = $this->producer->flush($this->flushTimeout);

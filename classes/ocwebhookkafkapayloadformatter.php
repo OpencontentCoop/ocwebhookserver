@@ -87,6 +87,12 @@ class OCWebHookKafkaPayloadFormatter
                     $content = is_array($attrValue) && array_key_exists('content', $attrValue)
                         ? $attrValue['content']
                         : $attrValue;
+                    // Normalize null content of structured attributes to empty array.
+                    // ocopendata wraps typed attributes as {"content": <value>};
+                    // empty relation lists come as {"content": null} — normalize to [].
+                    if ($content === null && is_array($attrValue) && array_key_exists('content', $attrValue)) {
+                        $content = [];
+                    }
                     // Normalize camelCase keys in relation item lists
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);

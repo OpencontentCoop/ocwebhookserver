@@ -191,6 +191,36 @@ assert_eq($meta3['name'],       '',           'Minimal: name is empty string whe
 assert_eq($result3['entity']['data'], [],     'Minimal: entity.data is empty array');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 7: null content di attributi strutturati normalizzato a []
+// ocopendata restituisce {"content": null} per liste relazionate vuote
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadWithNullContent = [
+    'metadata' => ['id' => '50', 'classIdentifier' => 'article', 'languages' => ['it-IT']],
+    'data'     => [
+        'it-IT' => [
+            // relation list vuota (null content): deve diventare []
+            'files'       => ['content' => null, 'type' => 'ezbinaryfilecollection'],
+            // relation list con item: rimane array
+            'attachments' => ['content' => [['id' => 1, 'name' => 'doc.pdf']], 'type' => 'ezbinaryfilecollection'],
+            // campo testo: null resta null (non avvolto in content wrapper)
+            'subtitle'    => null,
+            // campo testo con valore stringa normale
+            'title'       => ['content' => 'Titolo', 'type' => 'ezstring'],
+        ],
+    ],
+];
+
+$formatter4 = new OCWebHookKafkaPayloadFormatter('frontend', 'bugliano');
+$result4    = $formatter4->format($payloadWithNullContent);
+$data4      = $result4['entity']['data']['it-IT'];
+
+assert_eq($data4['files'],       [], 'Null content normalizzato a [] (lista vuota)');
+assert_eq($data4['attachments'], [['id' => 1, 'name' => 'doc.pdf']], 'Lista con item non modificata');
+assert_null($data4['subtitle'],     'Null grezzo (non content-wrapped) preservato come null');
+assert_eq($data4['title'],       'Titolo', 'Campo testo estratto correttamente');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
