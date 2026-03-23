@@ -230,7 +230,88 @@ if ($message2 !== null) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 5: produce() returns false when broker is unreachable
+// TEST 5: delete trigger → ce_type=deleted, oc_operation=deleted
+// ─────────────────────────────────────────────────────────────────────────────
+
+set_ini($BROKER, $TOPIC, $FLUSH_MS);
+
+$deletePayload = [
+    'entity' => [
+        'meta' => [
+            'id'         => 'test-tenant-uuid-1234:42',
+            'type_id'    => 'article',
+            'version'    => 3,  // version is irrelevant for delete — must still be 'deleted'
+        ],
+        'data' => [],
+    ],
+];
+
+$startOffset3 = get_end_offset($BROKER, $TOPIC);
+$producer3    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$sent3        = $producer3->produce('delete_ocopendata', $deletePayload);
+
+assert_true($sent3, 'Delete: produce() returns true when Redpanda is reachable');
+
+$message3 = consume_message($BROKER, $TOPIC, $startOffset3, 5000);
+assert_true($message3 !== null, 'Delete: message arrived on Kafka topic');
+
+if ($message3 !== null) {
+    $headers3 = (array)($message3->headers ?? []);
+
+    assert_true(
+        isset($headers3['ce_type']) && $headers3['ce_type'] === 'it.opencity.website.article.deleted',
+        'Delete: ce_type = it.opencity.<slug>.<type_id>.deleted'
+    );
+    assert_true(
+        isset($headers3['oc_operation']) && $headers3['oc_operation'] === 'deleted',
+        'Delete: oc_operation = deleted'
+    );
+    assert_true(
+        isset($headers3['ce_specversion']) && $headers3['ce_specversion'] === '1.0',
+        'Delete: ce_specversion = 1.0'
+    );
+    assert_true(
+        isset($headers3['ce_id']) && strlen($headers3['ce_id']) === 36,
+        'Delete: ce_id is a UUID'
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 6: delete trigger with version=1 → still deleted (version ignored)
+// ─────────────────────────────────────────────────────────────────────────────
+
+$deletePayloadV1 = [
+    'entity' => [
+        'meta' => [
+            'id'      => 'test-tenant-uuid-1234:99',
+            'type_id' => 'event',
+            'version' => 1,  // version=1 would normally be 'created' — must be overridden by delete trigger
+        ],
+        'data' => [],
+    ],
+];
+
+$startOffset4 = get_end_offset($BROKER, $TOPIC);
+$producer4    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$sent4        = $producer4->produce('delete_ocopendata', $deletePayloadV1);
+
+assert_true($sent4, 'Delete v1: produce() returns true');
+
+$message4 = consume_message($BROKER, $TOPIC, $startOffset4, 5000);
+if ($message4 !== null) {
+    $headers4 = (array)($message4->headers ?? []);
+    assert_true(
+        isset($headers4['ce_type']) && $headers4['ce_type'] === 'it.opencity.website.event.deleted',
+        'Delete v1: ce_type = event.deleted even when version=1 (delete takes priority)'
+    );
+    assert_true(
+        isset($headers4['oc_operation']) && $headers4['oc_operation'] === 'deleted',
+        'Delete v1: oc_operation = deleted even when version=1'
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 7: produce() returns false when broker is unreachable
 // ─────────────────────────────────────────────────────────────────────────────
 
 set_ini('127.0.0.1:19999', $TOPIC, 500);  // short flush timeout to speed up test

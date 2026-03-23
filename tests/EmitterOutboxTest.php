@@ -311,7 +311,30 @@ assert_eq(OCWebHookJob::storedCount(), 0, 'No webhooks: no jobs created');
 assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 0, 'No webhooks: queue receives empty list');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 5: Unknown trigger → eZDebug error, nothing else happens
+// TEST 5: delete_ocopendata trigger → jobs stored and queued like any other trigger
+// ─────────────────────────────────────────────────────────────────────────────
+
+setup();
+OCWebHook::$hooks = [
+    new TestWebHook(1, 'kafka-cms',  'kafka://redpanda:9092/cms'),
+    new TestWebHook(2, 'http-hook',  'https://notify.example.com/hook'),
+];
+TestWebHookRegistry::$registry = [
+    1 => 'kafka://redpanda:9092/cms',
+    2 => 'https://notify.example.com/hook',
+];
+
+OCWebHookEmitter::emit('delete_ocopendata', ['entity' => ['meta' => ['id' => 'opencity:42', 'type_id' => 'article'], 'data' => []]], 'immediate');
+
+assert_eq(OCWebHookJob::storedCount(),               2, 'Delete: 2 jobs written to DB (outbox)');
+assert_eq(OCWebHookJob::removedCount(),              0, 'Delete: no jobs removed (all stay PENDING)');
+assert_true(OCWebHookQueue::$spy->pushJobsCalled,       'Delete: queue.pushJobs() called');
+assert_true(OCWebHookQueue::$spy->executeCalled,        'Delete: queue.execute() called');
+assert_eq(count(OCWebHookQueue::$spy->receivedJobs), 2, 'Delete: both jobs passed to queue');
+assert_true(empty(eZDebug::$errors),                    'Delete: no eZDebug errors');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 6: Unknown trigger → eZDebug error, nothing else happens
 // ─────────────────────────────────────────────────────────────────────────────
 
 setup();
