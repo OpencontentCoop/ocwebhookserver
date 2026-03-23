@@ -31,7 +31,11 @@ class OCWebHookKafkaProducer
         $this->tenantId = $ini->variable('KafkaSettings', 'TenantId');
         $this->productSlug = $ini->variable('KafkaSettings', 'ProductSlug');
         $this->appName = $ini->variable('KafkaSettings', 'AppName');
-        $this->appVersion = $ini->variable('KafkaSettings', 'AppVersion');
+        $appVersion = $ini->variable('KafkaSettings', 'AppVersion');
+        if (empty($appVersion) && class_exists('Composer\InstalledVersions')) {
+            $appVersion = \Composer\InstalledVersions::getPrettyVersion('opencontent/ocwebhookserver-ls') ?: '';
+        }
+        $this->appVersion = $appVersion;
         $this->ceTypeMap = $ini->hasGroup('KafkaCeTypeMap')
             ? $ini->group('KafkaCeTypeMap')
             : [];
