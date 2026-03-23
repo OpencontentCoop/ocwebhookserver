@@ -221,6 +221,45 @@ assert_null($data4['subtitle'],     'Null grezzo (non content-wrapped) preservat
 assert_eq($data4['title'],       'Titolo', 'Campo testo estratto correttamente');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 8: ISO 8601 date strings (real ocopendata format uses date('c'))
+// ─────────────────────────────────────────────────────────────────────────────
+
+$iso8601Published = '2026-03-15T10:00:00+01:00';  // date('c', $publishedTs) in Europe/Rome
+$iso8601Modified  = '2026-03-20T11:30:00+01:00';
+
+$payloadIso = [
+    'metadata' => [
+        'id'              => '55',
+        'classIdentifier' => 'article',
+        'published'       => $iso8601Published,
+        'modified'        => $iso8601Modified,
+        'languages'       => ['it-IT'],
+        'name'            => ['it-IT' => 'ISO date test'],
+    ],
+    'data' => [],
+];
+
+$formatter5 = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$result5    = $formatter5->format($payloadIso);
+$meta5      = $result5['entity']['meta'];
+
+assert_eq(
+    $meta5['published_at'],
+    gmdate('Y-m-d\TH:i:s\Z', strtotime($iso8601Published)),
+    'ISO 8601 date string converted to UTC for published_at'
+);
+assert_eq(
+    $meta5['updated_at'],
+    gmdate('Y-m-d\TH:i:s\Z', strtotime($iso8601Modified)),
+    'ISO 8601 date string converted to UTC for updated_at'
+);
+// Make sure it's not "1970-01-01" (the (int)"2026-03-15..." = 2026 bug)
+assert_true(
+    strpos($meta5['published_at'], '1970') === false,
+    'published_at is not 1970 (ISO 8601 string parsed correctly)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 

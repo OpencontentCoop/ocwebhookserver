@@ -73,9 +73,9 @@ class OCWebHookKafkaPayloadFormatter
             'name'         => $name,
             'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
             'published_at' => isset($metadata['published']) && $metadata['published'] !== null
-                                ? gmdate('Y-m-d\TH:i:s\Z', (int)$metadata['published']) : null,
+                                ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
-                                ? gmdate('Y-m-d\TH:i:s\Z', (int)$metadata['modified'])  : null,
+                                ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['modified']))  : null,
         ];
 
         // Flatten attribute values per language: extract the "content" field from each attribute.
@@ -115,6 +115,22 @@ class OCWebHookKafkaPayloadFormatter
         }
 
         return ['entity' => ['meta' => $meta, 'data' => $data]];
+    }
+
+    /**
+     * Convert a timestamp value to a Unix timestamp integer.
+     * Accepts both Unix timestamps (int/numeric string) and date strings (ISO 8601, etc.).
+     *
+     * @param int|string $value
+     * @return int
+     */
+    private static function toTimestamp($value)
+    {
+        if (is_numeric($value)) {
+            return (int)$value;
+        }
+        $ts = strtotime($value);
+        return $ts !== false ? $ts : 0;
     }
 
     /**

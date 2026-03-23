@@ -35,6 +35,7 @@ class WorkflowWebHookType extends eZWorkflowEventType
                     $currentEnvironment->__set('request', $request);
                     $payload = $currentEnvironment->filterContent($content);
                     $payload['metadata']['baseUrl'] = eZSys::serverURL();
+                    $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
                     $triggerInstance = OCWebHookTriggerRegistry::registeredTrigger(PostPublishWebHookTrigger::IDENTIFIER);
                     $queueHandler = $triggerInstance instanceof OCWebHookTriggerInterface
