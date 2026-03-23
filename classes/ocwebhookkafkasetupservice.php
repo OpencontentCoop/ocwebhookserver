@@ -11,6 +11,10 @@
  *   $result  = $service->run(['redpanda:9092'], 'cms');
  *   foreach ($result['log'] as $line) { echo $line . "\n"; }
  *   if (!$result['ok']) { exit(1); }
+ *
+ * Utilizzo dall'installer (php_callable):
+ *   type: php_callable
+ *   identifier: 'OCWebHookKafkaSetupService::setupFromIni'
  */
 class OCWebHookKafkaSetupService
 {
@@ -187,5 +191,55 @@ class OCWebHookKafkaSetupService
         );
 
         $log[] = "[ok] Webhook kafka:// registrato: ocwebhook.id=$webhookId, url=$kafkaUrl";
+    }
+
+    // ── Installer entry-point ─────────────────────────────────────────────────
+
+    /**
+     * Entry-point per l'installer ocinstall (step di tipo php_callable).
+     *
+     * Legge la configurazione da webhook.ini; non fa nulla se
+     * KafkaSettings.Enabled != 'enabled'.
+     *
+     * @param object|null $stepInstaller  Istanza PhpCallable (passata da ocinstall)
+     */
+    public static function setupFromIni($stepInstaller = null)
+    {
+        $ini     = eZINI::instance('webhook.ini');
+        $enabled = $ini->hasVariable('KafkaSettings', 'Enabled')
+            ? $ini->variable('KafkaSettings', 'Enabled')
+            : 'disabled';
+
+        if ($enabled !== 'enabled') {
+            return;
+        }
+
+        $brokers = $ini->hasVariable('KafkaSettings', 'Brokers')
+            ? $ini->variable('KafkaSettings', 'Brokers')
+            : [];
+        $brokers = is_array($brokers) ? array_filter($brokers) : [];
+
+        $topic = $ini->hasVariable('KafkaSettings', 'Topic')
+            ? $ini->variable('KafkaSettings', 'Topic')
+            : '';
+
+        $service = new self(eZDB::instance());
+        $result  = $service->run($brokers, $topic);
+
+        $logger = null;
+        if ($stepInstaller !== null && method_exists($stepInstaller, 'getLogger')) {
+            $logger = $stepInstaller->getLogger();
+        }
+        foreach ($result['log'] as $line) {
+            if ($logger !== null) {
+                $logger->info($line);
+            } else {
+                eZCLI::instance()->output($line);
+            }
+        }
+
+        if (!$result['ok']) {
+            throw new RuntimeException('OCWebHookKafkaSetupService::setupFromIni failed');
+        }
     }
 }
