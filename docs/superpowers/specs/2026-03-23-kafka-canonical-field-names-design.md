@@ -134,7 +134,7 @@ Others (`legal_name`, `topics`, `abstract`, `image`, `main_function`, `hold_empl
 | `has_related_services` | `related_services` | Proprietary reverse-relation `has_*`, not OntoPiA |
 | `sede_di` | `headquarters_of` | Italian |
 
-Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `has_related_services`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`) already canonical.
+Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`) already canonical.
 
 ---
 
@@ -245,7 +245,7 @@ No renames needed. (`name`, `description`, `image`, `internal_location`, `locati
 
 ### `offer`
 
-OntoPiA vocabulary fields (`has_price_specification`, `has_currency`, `has_eligible_user`) are unchanged. `description` already canonical. `start_time` type could not be verified from installer source — moved to **Out of Scope / Future Work**.
+`has_price_specification` is a CPSV-AP/schema.org term — unchanged. `has_currency` and `has_eligible_user` are schema.org terms (`schema:priceCurrency`, `schema:eligibleCustomerType`) used with the Italian OntoPiA `has_` prefix convention — unchanged. `description` already canonical. `start_time` type could not be verified from installer source — moved to **Future Work**.
 
 ---
 
@@ -294,8 +294,8 @@ Others (`name`, `opening_hours`, `closure`, `place`) already canonical.
 |---|---|---|---|
 | `compensi` | ezxmltext | `compensations` | Italian |
 | `importi` | ezxmltext | `amounts` | Italian |
-| `start_time` | ezdate | `start_date` | Italian-style date field; ezdate → `_date` suffix |
-| `end_time` | ezdate | `end_date` | ezdate → `_date` suffix |
+| `start_time` | ezdate | `start_date` | Misleading `_time` suffix; confirmed ezdate → renamed to `_date` |
+| `end_time` | ezdate | `end_date` | Misleading `_time` suffix; confirmed ezdate → renamed to `_date` |
 | `data_insediamento` | ezdate | `inauguration_date` | Italian + ezdate → `_date` |
 | `incarico_dirigenziale` | ezboolean | `executive_position` | Italian |
 | `ruolo_principale` | ezboolean | `primary_role` | Italian |
@@ -307,20 +307,36 @@ Others (`label`, `person`, `role`, `type`, `for_entity`, `atto_nomina`, `compete
 
 ## `_with_related` Variants
 
-Content types `article_with_projects`, `event_with_related`, `organization_with_related`, `image_with_related`, `public_service_with_related`, `opening_hours_specification_with_related`, `pagina_sito_with_dataset`, `private_organization` inherit the map of their base type:
+Content types `article_with_projects`, `event_with_related`, `organization_with_related`, `image_with_related`, `public_service_with_related`, `opening_hours_specification_with_related`, `pagina_sito_with_dataset`, `private_organization` inherit the map of their base type.
+
+**Important implementation note:** PHP static properties cannot self-reference during initialisation. Variant aliases must be resolved inside `getMap()`, not in the `$maps` initialiser:
 
 ```php
-'article_with_projects'                    => self::$maps['article'],
-'event_with_related'                       => self::$maps['event'],
-'organization_with_related'                => self::$maps['organization'],
-'private_organization'                     => self::$maps['organization'],
-'image_with_related'                       => self::$maps['image'],
-'public_service_with_related'              => self::$maps['public_service'],
-'opening_hours_specification_with_related' => self::$maps['opening_hours_specification'],
-'pagina_sito_with_dataset'                 => self::$maps['pagina_sito'],
-// Note: variants may add extra fields not in the base map; those pass through as-is.
-//       Extra variant fields have been reviewed and confirmed already canonical (English, snake_case).
+private static $variantAliases = [
+    'article_with_projects'                    => 'article',
+    'event_with_related'                       => 'event',
+    'organization_with_related'                => 'organization',
+    'private_organization'                     => 'organization',
+    'image_with_related'                       => 'image',
+    'public_service_with_related'              => 'public_service',
+    'opening_hours_specification_with_related' => 'opening_hours_specification',
+    'pagina_sito_with_dataset'                 => 'pagina_sito',
+];
+
+public static function getMap($contentTypeId)
+{
+    if (isset(self::$maps[$contentTypeId])) {
+        return self::$maps[$contentTypeId];
+    }
+    if (isset(self::$variantAliases[$contentTypeId])) {
+        $base = self::$variantAliases[$contentTypeId];
+        return isset(self::$maps[$base]) ? self::$maps[$base] : [];
+    }
+    return [];
+}
 ```
+
+Extra fields present in variant types but absent from the base map pass through unchanged. These fields have been reviewed and are already canonical (English, snake_case).
 
 Any additional fields in the variant that are already canonical need no entry.
 
@@ -334,7 +350,7 @@ Any additional fields in the variant that are already canonical need no entry.
 
 ## Testing
 
-Unit tests (no Kafka broker required) added to the existing `run_tests.php` runner.
+Unit tests (no Kafka broker required) added to the existing `run_tests.php` runner. **`run_tests.php` must be updated** to `require_once` the two new test files so they are executed by the CI `test` job.
 
 ### New test files
 
@@ -358,17 +374,9 @@ tests/
 
 ## Backward Compatibility
 
-This is a **breaking change** for any consumer that reads field names from `entity.data` by their eZ Publish identifier (e.g. `data_protocollazione`, `event_title`).
+This change is introduced as part of **V1** — the first production release of the Kafka integration. No consumers exist yet, so there is no breaking-change concern and no dual-name transition period is needed.
 
-**Cut-over strategy:** the rename is introduced as a single release with no dual-name transition period. Rationale:
-
-- The Kafka topic is consumed by internal OpenCity platform services only (no third-party integrations at the time of writing).
-- Consumer code must be updated in the same release window.
-- A `ce_type` version suffix (e.g. `content.published.v2`) is **not** introduced because the canonical names are a correction, not a schema version bump; adding version suffixes would complicate consumer routing permanently.
-
-If future external consumers exist before this change ships, the team must coordinate a cut-over with those consumers or introduce a versioned `ce_type` suffix at that point.
-
-**Consumer mismatch:** if a consumer receives a message with new canonical field names while still expecting the old names, it will see `null`/missing values for renamed fields. Since the Kafka topic is append-only and messages are not re-emitted, there is no automatic recovery — the consumer must be updated before or at the same time as this change is deployed. A coordinated deploy window is required.
+Going forward, new content types added to the CMS must follow the naming conventions in this spec from the start; no further remapping will be required for them.
 
 ---
 
