@@ -20,7 +20,8 @@
 | Redundant content-type prefix → removed | `event_title` → `title`, `event_abstract` → `abstract` |
 | Abbreviations → expanded | `alt_name` → `alternative_name`, `eu` → `eu_classification` |
 | Italian plural field names → English | `servizi_offerti` → `offered_services`, `deleghe` → `delegations` |
-| OntoPiA/schema.org `has_*` fields → **unchanged** | Only fields whose `has_*` name comes from a published ontology (CPSV-AP, OntoPiA Core, schema.org): `has_service_status`, `has_spatial_coverage`, `has_role`, `has_contact_point`, `has_online_contact_point`, `has_language`, `has_price_specification`, `has_address`, `has_office`, `has_public_event_typology`. Proprietary CMS `has_*` names with no ontology backing **are renamed** (see `has_code` → `code`, `has_video` → `video_url`, `has_related_services` → `related_services`, `has_channel_type` → `channel_type`). |
+| `has_*` fields that are object relations → **unchanged** | Whether from OntoPiA or not, if the underlying eZ type is a relation (`ezobjectrelationlist`, `openpareverserelationlist`, etc.) the `has_` prefix is semantically correct and is kept: `has_service_status`, `has_spatial_coverage`, `has_role`, `has_contact_point`, `has_online_contact_point`, `has_language`, `has_price_specification`, `has_address`, `has_office`, `has_public_event_typology`, `has_related_services`. |
+| `has_*` fields that are scalars → **renamed** | If the underlying eZ type is a scalar (`ezstring`, `eztags`, `ezboolean`, `ezinteger`, etc.) the `has_` prefix is misleading — a consumer would not expect a plain value there. These are renamed: `has_code` (ezstring) → `code`, `has_video` (ezstring) → `video_url`, `has_channel_type` (eztags) → `channel_type`. |
 | Singleton `note` fields → plural `notes` | `note` → `notes` (consistency across all content types) |
 | schema.org personal names → **unchanged** | `given_name`, `family_name`, `legal_name` |
 | Unmapped fields → pass through as-is | no rename, no error, no log warning |
@@ -92,11 +93,11 @@ All other fields (`title`, `content_type`, `abstract`, `topics`, `image`, `body`
 
 ### `document` (Documenti)
 
-| eZ attribute | Canonical name | Reason |
-|---|---|---|
-| `has_code` | `code` | Not an OntoPiA/schema.org term (it is a CMS-proprietary field for document codes such as DOI, ISBN, deed number); simplify |
-| `protocollo` | `protocol_number` | Italian |
-| `data_protocollazione` | `protocollation_date` | Italian + ezdate |
+| eZ attribute | eZ type | Canonical name | Reason |
+|---|---|---|---|
+| `has_code` | ezstring | `code` | Scalar string for document codes (DOI, ISBN, deed number) — `has_` prefix misleading for a plain value |
+| `protocollo` | ezstring | `protocol_number` | Italian |
+| `data_protocollazione` | ezdate | `protocollation_date` | Italian + ezdate → `_date` |
 
 Others (`name`, `document_type`, `topics`, `abstract`, `full_description`, `image`) already canonical.
 
@@ -128,13 +129,12 @@ Others (`legal_name`, `topics`, `abstract`, `image`, `main_function`, `hold_empl
 
 ### `place` (Luoghi)
 
-| eZ attribute | Canonical name | Reason |
-|---|---|---|
-| `has_video` | `video_url` | ezstring URL field; proprietary `has_*` (not in any published ontology) |
-| `has_related_services` | `related_services` | Proprietary reverse-relation `has_*`, not OntoPiA |
-| `sede_di` | `headquarters_of` | Italian |
+| eZ attribute | eZ type | Canonical name | Reason |
+|---|---|---|---|
+| `has_video` | ezstring | `video_url` | Scalar URL string — `has_` prefix misleading for a plain string value |
+| `sede_di` | ezobjectrelationlist | `headquarters_of` | Italian |
 
-Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`) already canonical.
+Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`, `has_related_services`) already canonical. `has_related_services` is `openpareverserelationlist` — a relation — so the `has_` prefix is kept.
 
 ---
 
@@ -257,9 +257,9 @@ No renames needed. (`name`, `short_name`, `abstract`, `description`, `image`)
 
 ### `channel`
 
-| eZ attribute | Canonical name | Reason |
-|---|---|---|
-| `has_channel_type` | `channel_type` | Proprietary `has_*`, not in any published ontology |
+| eZ attribute | eZ type | Canonical name | Reason |
+|---|---|---|---|
+| `has_channel_type` | eztags | `channel_type` | Scalar taxonomy tag — `has_` prefix misleading for a plain value |
 
 Others (`object`, `abstract`, `description`, `channel_url`) already canonical.
 
