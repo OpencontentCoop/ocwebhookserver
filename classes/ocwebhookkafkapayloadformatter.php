@@ -18,6 +18,8 @@
  *   metadata.modified        → entity.meta.updated_at   (ISO 8601)
  *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>
  */
+require_once dirname(__FILE__) . '/ocwebhookkafkafieldmap.php';
+
 class OCWebHookKafkaPayloadFormatter
 {
     /** @var string eZ Publish siteaccess name (e.g. "frontend"), used in entity.meta.siteaccess */
@@ -86,6 +88,18 @@ class OCWebHookKafkaPayloadFormatter
                         ? $attrValue['content']
                         : $attrValue;
                 }
+            }
+        }
+
+        // Apply canonical field name mapping. Unmapped fields and unmapped content types pass through.
+        $map = OCWebHookKafkaFieldMap::getMap($meta['type_id']);
+        if (!empty($map)) {
+            foreach ($data as $lang => $attrs) {
+                $renamed = [];
+                foreach ($attrs as $key => $val) {
+                    $renamed[isset($map[$key]) ? $map[$key] : $key] = $val;
+                }
+                $data[$lang] = $renamed;
             }
         }
 
