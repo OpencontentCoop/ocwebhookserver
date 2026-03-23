@@ -6,9 +6,9 @@
  * Eseguire dall'interno del container:
  *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_persone.php
  *
- * Campi compilati: given_name, family_name, has_contact_point (contatto URI), abstract,
- *   competenze, deleghe, bio, notes
- * Campi richiesti (schema PublicPerson): given_name, family_name, has_contact_point
+ * Campi compilati: given_name, family_name, has_contact_point (contatto URI), has_role,
+ *   abstract, competenze, deleghe, bio, notes
+ * Campi richiesti (schema PublicPerson): given_name, family_name, has_contact_point, has_role
  *
  * SKIP se non disponibili: punti-di-contatto (has_contact_point)
  */
@@ -48,14 +48,15 @@ $familyName = $cognomi[array_rand($cognomi)] . ' E2E';
 $title = "$givenName $familyName";
 
 $payload = json_encode([
-    'given_name'       => $givenName,
-    'family_name'      => $familyName,
+    'given_name'        => $givenName,
+    'family_name'       => $familyName,
     'has_contact_point' => [['uri' => $contattoUri]],
-    'abstract'         => 'Funzionario test creato dal sistema E2E — ' . $uniqueSuffix,
-    'competenze'       => 'Competenze: ' . rand_words(6),
-    'deleghe'          => 'Deleghe: ' . rand_words(4),
-    'bio'              => rand_html_body(2),
-    'notes'            => 'Nota automatica test E2E — ' . $uniqueSuffix,
+    'has_role'          => true,
+    'abstract'          => 'Funzionario test creato dal sistema E2E — ' . $uniqueSuffix,
+    'competenze'        => 'Competenze: ' . rand_words(6),
+    'deleghe'           => 'Deleghe: ' . rand_words(4),
+    'bio'               => rand_html_body(2),
+    'notes'             => 'Nota automatica test E2E — ' . $uniqueSuffix,
 ]);
 
 // ── POST ──────────────────────────────────────────────────────────────────────
