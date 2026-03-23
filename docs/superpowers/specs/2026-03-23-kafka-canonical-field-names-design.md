@@ -1,0 +1,357 @@
+# Kafka Canonical Field Names — Design Spec
+
+**Goal:** Normalise `entity.data` field names in the Kafka payload so that consumers receive consistent, English, schema.org/OntoPiA-aligned names regardless of the raw eZ Publish attribute identifiers stored in the CMS.
+
+**Scope:** Output transformation only — Kafka payload body (`entity.data`). No changes to eZ Publish class definitions, REST API, or CloudEvents headers.
+
+**Architecture:** Static PHP mapping class + one additional step in the existing formatter.
+
+---
+
+## Naming Conventions
+
+| Rule | Example (before → after) |
+|------|--------------------------|
+| English only — no Italian words | `data_protocollazione` → `protocollation_date` |
+| `snake_case` | already enforced everywhere |
+| `ezdate` fields → `_date` suffix | `dead_line` → `deadline_date`, `issued` → `issued_date` |
+| `ezdatetime` fields → `_at` suffix | `start_time` (datetime) → `start_at` |
+| Single identifier strings → `_id` suffix | `id_comunicato` → `notice_id` |
+| Redundant content-type prefix → removed | `event_title` → `title`, `event_abstract` → `abstract` |
+| Abbreviations → expanded | `alt_name` → `alternative_name`, `eu` → `eu_classification` |
+| Italian plural field names → English | `servizi_offerti` → `offered_services`, `deleghe` → `delegations` |
+| OntoPiA `has_*` fields → **unchanged** | `has_service_status`, `has_spatial_coverage`, `has_role`, `has_contact_point`, `has_online_contact_point`, `has_language`, `has_price_specification` |
+| schema.org personal names → **unchanged** | `given_name`, `family_name`, `legal_name` |
+| Unmapped fields → pass through as-is | no rename, no error, no log warning |
+
+---
+
+## Architecture
+
+### New class: `OCWebHookKafkaFieldMap`
+
+File: `classes/ocwebhookkafkafieldmap.php`
+
+```php
+class OCWebHookKafkaFieldMap
+{
+    private static $maps = [ /* see Content Type Maps below */ ];
+
+    /**
+     * Returns the field rename map for a given content type identifier.
+     * Fields absent from the map pass through unchanged.
+     *
+     * @param string $contentTypeId  eZ Publish class identifier (e.g. "article")
+     * @return array                 [ 'old_name' => 'canonical_name', ... ]
+     */
+    public static function getMap($contentTypeId)
+    {
+        return isset(self::$maps[$contentTypeId]) ? self::$maps[$contentTypeId] : [];
+    }
+}
+```
+
+### Modified: `OCWebHookKafkaPayloadFormatter::format()`
+
+After the attribute-flattening loop, before `return`:
+
+```php
+$map = OCWebHookKafkaFieldMap::getMap($meta['type_id']);
+if (!empty($map)) {
+    foreach ($data as $lang => $attrs) {
+        $renamed = [];
+        foreach ($attrs as $key => $val) {
+            $renamed[isset($map[$key]) ? $map[$key] : $key] = $val;
+        }
+        $data[$lang] = $renamed;
+    }
+}
+```
+
+No changes to `entity.meta`, CloudEvents headers, or outbox persistence.
+
+---
+
+## Content Type Maps
+
+### `article` (Notizie, Avvisi, Comunicati)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `published` | `published_date` | ezdate → `_date` |
+| `dead_line` | `deadline_date` | ezdate + fix typo-style name |
+| `id_comunicato` | `notice_id` | Italian + `_id` convention |
+| `attachment` | `attachments` | ezobjectrelationlist → plural |
+| `dataset` | `datasets` | ezobjectrelationlist → plural |
+| `related_service` | `related_services` | ezobjectrelationlist → plural |
+
+All other fields (`title`, `content_type`, `abstract`, `topics`, `image`, `body`, `people`, `location`, `video`, `author`, `audio`, `files`, `help`, `license`, `reading_time`) are already canonical.
+
+---
+
+### `document` (Documenti)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `has_code` | `code` | Not OntoPiA `has_*`; simplify |
+| `protocollo` | `protocol_number` | Italian |
+| `data_protocollazione` | `protocollation_date` | Italian + ezdate |
+
+Others (`name`, `document_type`, `topics`, `abstract`, `full_description`, `image`) already canonical.
+
+---
+
+### `event` (Eventi)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `event_title` | `title` | Remove redundant `event_` prefix |
+| `short_event_title` | `short_title` | Remove redundant prefix |
+| `event_abstract` | `abstract` | Remove redundant prefix |
+
+Others (`has_public_event_typology`, `identifier`, `time_interval`, `topics`, `description`, `image`) already canonical.
+
+---
+
+### `organization` (Unità organizzative)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `alt_name` | `alternative_name` | Expand abbreviation |
+| `servizi_offerti` | `offered_services` | Italian |
+| `tax_code_e_invoice_service` | `tax_code` | Simplify over-specific name |
+
+Others (`legal_name`, `topics`, `abstract`, `image`, `main_function`, `hold_employment`, `office_manager`, `type`, `political_reference`, `people`, `has_spatial_coverage`, `has_online_contact_point`, `attachments`, `more_information`, `identifier`, `related_offices`) already canonical.
+
+---
+
+### `place` (Luoghi)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `has_video` | `video_url` | ezstring containing URL, not OntoPiA `has_*` |
+| `sede_di` | `headquarters_of` | Italian |
+
+Others (`name`, `alternative_name`, `topics`, `type`, `abstract`, `description`, `contains_place`, `image`, `video`, `has_related_services`, `accessibility`, `has_address`, `opening_hours_specification`, `help`, `has_office`, `external_contact_point`, `more_information`, `main_category`, `identifier`) already canonical.
+
+---
+
+### `public_person` (Personale amministrativo)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `competenze` | `competencies` | Italian |
+| `deleghe` | `delegations` | Italian |
+| `situazione_patrimoniale` | `asset_declaration` | Italian |
+| `dichiarazioni_patrimoniali_soggetto` | `asset_declarations_subject` | Italian |
+| `dichiarazioni_patrimoniali_parenti` | `asset_declarations_relatives` | Italian |
+| `dichiarazione_redditi` | `income_declaration` | Italian |
+| `spese_elettorali` | `electoral_expenses` | Italian |
+| `spese_elettorali_files` | `electoral_expenses_files` | Italian |
+| `variazioni_situazione_patrimoniale` | `asset_declaration_changes` | Italian |
+| `altre_cariche` | `other_positions` | Italian |
+| `eventuali_incarichi` | `additional_assignments` | Italian |
+| `dichiarazione_incompatibilita` | `incompatibility_declaration` | Italian |
+
+Others (`given_name`, `family_name`, `abstract`, `image`, `has_role`, `bio`, `has_contact_point`, `curriculum`, `notes`, `related_news`) already canonical.
+
+---
+
+### `public_service` (Servizi)
+
+No renames needed. All attributes (`type`, `name`, `identifier`, `other_service_code`, `has_service_status`, `status_note`, `alternative_name`, `image`, `abstract`, `description`, `audience`, `has_spatial_coverage`, `process`, `has_language`, `how_to`, `has_input`, `produces_output`, `is_physically_available_at`, `terms_of_service`, `has_online_contact_point`, `holds_role_in_time`, `topics`, `has_cost_description`, `output_notes`) are already canonical (OntoPiA vocabulary extensively used).
+
+---
+
+### `topic` (Argomenti)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `eu` | `eu_classification` | Cryptic abbreviation |
+| `data_themes_eurovocs` | `eurovoc_themes` | Remove `data_` prefix, simplify |
+
+Others (`name`, `managed_by_area`, `managed_by_political_body`, `type`, `description`, `theme`, `image`, `abstract`, `icon`, `layout`, `help`, `show_topic_children`) already canonical.
+
+---
+
+### `dataset` (Dataset)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `modified` | `modified_date` | ezdate → `_date` |
+| `issued` | `issued_date` | ezdate → `_date` |
+| `accrualperiodicity` | `accrual_periodicity` | Missing underscore |
+
+Others (`title`, `abstract`, `theme`, `format`, `license`, `resources`, `download_url`, `download_file`, `csv_resource`, `rights_holder`, `identifier`, `spatial`, `temporal`, `creator`, `publisher`, `conforms_to`, `language`, `version_info`, `contact_point`, `keyword`) already canonical.
+
+---
+
+### `pagina_sito` (Pagine del sito)
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `publish_date` | `published_date` | Align with `article.published_date` |
+
+Others (`name`, `short_name`, `menu_name`, `abstract`, `description`, `image`, `show_children`, `layout`, `icon`, `show_topics`, `show_search_form`, `tag_menu`, `show_tag_cards`) already canonical.
+
+---
+
+### `faq` / `faq_section`
+
+No renames needed. (`question`, `answer`, `priority` / `name`, `description`, `image`)
+
+---
+
+### `image`
+
+No renames needed. (`name`, `caption`, `image`, `tags`, `license`, `proprietary_license`, `proprietary_license_source`, `author`)
+
+---
+
+### `file`
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `percorso_univoco` | `unique_path` | Italian |
+
+Others (`name`, `description`, `file`, `tags`) already canonical.
+
+---
+
+### `audio`
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `sottotitolo` | `subtitle` | Italian |
+| `durata` | `duration` | Italian |
+
+Others (`name`, `media`, `abstract`) already canonical.
+
+---
+
+### `chart`
+
+No renames needed. (`name`, `description`, `chart`)
+
+---
+
+### `banner`
+
+No renames needed. (`name`, `description`, `image`, `internal_location`, `location`, `background_color`, `topics`)
+
+---
+
+### `offer`
+
+No renames needed. OntoPiA vocabulary: `has_price_specification`, `has_currency`, `has_eligible_user`. Others (`description`, `start_time`) already canonical.
+
+---
+
+### `output`
+
+No renames needed. (`name`, `short_name`, `abstract`, `description`, `image`)
+
+---
+
+### `channel`
+
+No renames needed. (`object`, `has_channel_type`, `abstract`, `description`, `channel_url`)
+
+---
+
+### `online_contact_point`
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `note` | `notes` | Plural for consistency |
+
+Others (`name`, `contact`, `phone_availability_time`, `is_contact_point_of_organizations`) already canonical.
+
+---
+
+### `opening_hours_specification`
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `valid_from` | `valid_from_date` | ezdate → `_date` |
+| `valid_through` | `valid_through_date` | ezdate → `_date` |
+| `note` | `notes` | Plural for consistency |
+| `stagionalita` | `seasonality` | Italian |
+
+Others (`name`, `opening_hours`, `closure`, `place`) already canonical.
+
+---
+
+### `time_indexed_role`
+
+| eZ attribute | Canonical name | Reason |
+|---|---|---|
+| `compensi` | `compensations` | Italian |
+| `importi` | `amounts` | Italian |
+| `start_time` | `start_date` | ezdate → `_date` (not datetime) |
+| `end_time` | `end_date` | ezdate → `_date` |
+| `data_insediamento` | `inauguration_date` | Italian + ezdate |
+| `incarico_dirigenziale` | `executive_position` | Italian |
+| `ruolo_principale` | `primary_role` | Italian |
+| `priorita` | `priority` | Italian (missing accent in identifier) |
+
+Others (`label`, `person`, `role`, `type`, `for_entity`, `atto_nomina`, `competences`, `delegations`, `organizational_position`, `notes`) already canonical.
+
+---
+
+## `_with_related` Variants
+
+Content types `article_with_projects`, `event_with_related`, `organization_with_related`, `image_with_related`, `public_service_with_related`, `opening_hours_specification_with_related`, `pagina_sito_with_dataset`, `private_organization` inherit the map of their base type:
+
+```php
+'article_with_projects'                    => self::$maps['article'],
+'event_with_related'                       => self::$maps['event'],
+'organization_with_related'                => self::$maps['organization'],
+'private_organization'                     => self::$maps['organization'],
+'image_with_related'                       => self::$maps['image'],
+'public_service_with_related'              => self::$maps['public_service'],
+'opening_hours_specification_with_related' => self::$maps['opening_hours_specification'],
+'pagina_sito_with_dataset'                 => self::$maps['pagina_sito'],
+```
+
+Any additional fields in the variant that are already canonical need no entry.
+
+---
+
+## System Types (pass-through, no map)
+
+`apps_container`, `edit_homepage`, `edit_page`, `folder`, `frontpage`, `homepage`, `link`, `user`, `user_group`, `faq_group`, `faq_root` — these content types do not typically trigger relevant Kafka events and are not mapped. Fields pass through unchanged.
+
+---
+
+## Testing
+
+Unit tests (no Kafka broker required) added to the existing `run_tests.php` runner.
+
+### New test files
+
+```
+tests/
+  unit/
+    OCWebHookKafkaFieldMapTest.php        — verifica la mappa per ogni content type
+    OCWebHookPayloadFormatterRenameTest.php — end-to-end: ocopendata input → canonical output
+    fixtures/
+      article_raw.json / article_expected.json
+      document_raw.json / document_expected.json
+      event_raw.json / event_expected.json
+      ... (10 content type principali)
+```
+
+**Coverage priority:** `article`, `document`, `event`, `organization`, `place`, `public_person`, `public_service`, `time_indexed_role`, `opening_hours_specification`, `file`. Remaining content types added incrementally.
+
+**Invariant tested:** fields absent from the map pass through unchanged (regression guard for new attributes).
+
+---
+
+## Out of Scope
+
+- `entity.meta` field names (already canonical: `object_id`, `remote_id`, `type_id`, `published_at`, `updated_at`)
+- CloudEvents headers (`ce_type`, `ce_source`, `oc_app_name`, …)
+- REST API field names (ocopenapi extension)
+- eZ Publish class definitions in the installer
+- Per-instance INI override of the mapping (future work if needed)
