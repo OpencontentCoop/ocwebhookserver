@@ -20,7 +20,7 @@
  *   metadata.modifiedBy      → entity.meta.modified_by  ({id, login, name} of current-version author)
  *   metadata.published       → entity.meta.published_at (ISO 8601)
  *   metadata.modified        → entity.meta.updated_at   (ISO 8601)
- *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>
+ *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>  (ISO 8601 date strings normalised to UTC)
  */
 require_once dirname(__FILE__) . '/ocwebhookkafkafieldmap.php';
 
@@ -105,7 +105,7 @@ class OCWebHookKafkaPayloadFormatter
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
                     }
-                    $data[$lang][$attrName] = $content;
+                    $data[$lang][$attrName] = self::toUtcValue($content);
                 }
             }
         }
@@ -139,6 +139,30 @@ class OCWebHookKafkaPayloadFormatter
         }
         $ts = strtotime($value);
         return $ts !== false ? $ts : 0;
+    }
+
+    /**
+     * Recursively convert ISO 8601 datetime strings (with any timezone) to UTC.
+     * Strings matching YYYY-MM-DDTHH:MM:SS... are normalised to YYYY-MM-DDTHH:MM:SSZ.
+     * Arrays are traversed recursively; all other types pass through unchanged.
+     *
+     * ocopendata serializes ezdate/ezdatetime attributes with date('c', $ts) which
+     * uses the server's local timezone (e.g. "+01:00"). This method ensures the
+     * canonical Kafka payload always uses UTC for all date/time values.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function toUtcValue($value)
+    {
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/', $value)) {
+            $ts = strtotime($value);
+            return $ts !== false ? gmdate('Y-m-d\TH:i:s\Z', $ts) : $value;
+        }
+        if (is_array($value)) {
+            return array_map(['OCWebHookKafkaPayloadFormatter', 'toUtcValue'], $value);
+        }
+        return $value;
     }
 
     /**

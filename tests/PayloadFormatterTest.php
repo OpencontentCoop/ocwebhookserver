@@ -369,6 +369,60 @@ assert_null($result9['entity']['meta']['created_by'],  'created_by null when met
 assert_null($result9['entity']['meta']['modified_by'], 'modified_by null when metadata.modifiedBy is null');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 11: date strings in entity.data normalised to UTC
+// ocopendata uses date('c', $ts) → "+01:00" local timezone
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Simulate what ocopendata produces for an ezdate/ezdatetime attribute in Europe/Rome
+$localDateStr = '2026-03-15T10:00:00+01:00';  // 09:00 UTC
+$expectedUtc  = gmdate('Y-m-d\TH:i:s\Z', strtotime($localDateStr));
+
+$payloadWithDates = [
+    'metadata' => ['id' => '200', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'Date test']],
+    'data' => [
+        'it-IT' => [
+            // ezdate-like: string with timezone offset
+            'event_date'   => ['content' => $localDateStr,          'type' => 'ezdate'],
+            // already UTC (Z suffix) — must not be double-converted
+            'created_at'   => ['content' => '2026-01-01T00:00:00Z', 'type' => 'ezdatetime'],
+            // null — must stay null (not crash)
+            'empty_date'   => ['content' => null,                   'type' => 'ezdate'],
+            // plain string — must NOT be touched
+            'title'        => ['content' => 'Non è una data',       'type' => 'ezstring'],
+            // relation item with a date field inside (deep recursion)
+            'attachments'  => ['content' => [
+                ['id' => 1, 'remoteId' => 'file-abc', 'date' => '2025-12-01T08:00:00+01:00'],
+            ], 'type' => 'ezbinaryfilecollection'],
+        ],
+    ],
+];
+
+$formatterDates = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resultDates    = $formatterDates->format($payloadWithDates);
+$dataDates      = $resultDates['entity']['data']['it-IT'];
+
+assert_eq(
+    $dataDates['event_date'],
+    $expectedUtc,
+    'ezdate string with +01:00 offset normalised to UTC'
+);
+assert_eq(
+    $dataDates['created_at'],
+    '2026-01-01T00:00:00Z',
+    'Already-UTC string (Z suffix) left unchanged'
+);
+assert_eq($dataDates['empty_date'], [],   'null date (no-content) normalised to [] as usual');
+assert_eq($dataDates['title'],      'Non è una data', 'Plain string not touched');
+
+// Deep recursion: date inside a relation item
+$attachDate = $dataDates['attachments'][0]['date'] ?? null;
+assert_eq(
+    $attachDate,
+    gmdate('Y-m-d\TH:i:s\Z', strtotime('2025-12-01T08:00:00+01:00')),
+    'Date inside nested relation item also normalised to UTC'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
