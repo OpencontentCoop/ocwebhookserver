@@ -43,6 +43,13 @@ class WorkflowWebHookType extends eZWorkflowEventType
                         $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
                     }
 
+                    $currentVersion = $object->currentVersion();
+                    $modifierId = $currentVersion instanceof eZContentObjectVersion
+                        ? (int)$currentVersion->attribute('creator_id')
+                        : (int)$object->attribute('owner_id');
+                    $payload['metadata']['createdBy']  = self::userInfo((int)$object->attribute('owner_id'));
+                    $payload['metadata']['modifiedBy'] = self::userInfo($modifierId);
+
                     $payload['metadata']['apiUrl'] = null;
                     if ($mainNode instanceof eZContentObjectTreeNode
                         && class_exists('Opencontent\\OpenApi\\Loader')
@@ -101,6 +108,31 @@ class WorkflowWebHookType extends eZWorkflowEventType
         }
 
         return eZWorkflowType::STATUS_ACCEPTED;
+    }
+
+    /**
+     * Return a minimal user descriptor array for the given content-object user ID,
+     * or null if the user cannot be fetched.
+     *
+     * @param int $userId  eZContentObject ID of the user
+     * @return array|null  ['id' => int, 'login' => string, 'name' => string]
+     */
+    private static function userInfo($userId)
+    {
+        if (!$userId) {
+            return null;
+        }
+        $user = eZUser::fetch($userId);
+        if (!($user instanceof eZUser)) {
+            return null;
+        }
+        $userObject = eZContentObject::fetch($userId);
+        $name = ($userObject instanceof eZContentObject) ? $userObject->name() : $user->attribute('login');
+        return [
+            'id'    => $userId,
+            'login' => $user->attribute('login'),
+            'name'  => (string)$name,
+        ];
     }
 }
 

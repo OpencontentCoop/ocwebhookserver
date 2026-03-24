@@ -16,6 +16,8 @@
  *   metadata.baseUrl         → entity.meta.site_url
  *   metadata.contentUrl      → entity.meta.content_url  (public frontend URL)
  *   metadata.apiUrl          → entity.meta.api_url      (ocopenapi resource URI, null if ocopenapi unavailable)
+ *   metadata.createdBy       → entity.meta.created_by   ({id, login, name} of content owner)
+ *   metadata.modifiedBy      → entity.meta.modified_by  ({id, login, name} of current-version author)
  *   metadata.published       → entity.meta.published_at (ISO 8601)
  *   metadata.modified        → entity.meta.updated_at   (ISO 8601)
  *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>
@@ -76,6 +78,8 @@ class OCWebHookKafkaPayloadFormatter
             'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
             'content_url'  => isset($metadata['contentUrl'])        ? $metadata['contentUrl']        : null,
             'api_url'      => isset($metadata['apiUrl'])            ? $metadata['apiUrl']            : null,
+            'created_by'   => isset($metadata['createdBy'])        ? $metadata['createdBy']         : null,
+            'modified_by'  => isset($metadata['modifiedBy'])       ? $metadata['modifiedBy']        : null,
             'published_at' => isset($metadata['published']) && $metadata['published'] !== null
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null

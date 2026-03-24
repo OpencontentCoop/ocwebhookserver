@@ -115,6 +115,8 @@ assert_eq($meta['name'],       'Titolo notizia',    'entity.meta.name (primary l
 assert_eq($meta['site_url'],    'https://www.comune.example.it', 'entity.meta.site_url');
 assert_null($meta['content_url'],   'entity.meta.content_url is null when not in metadata');
 assert_null($meta['api_url'],       'entity.meta.api_url is null when not in metadata');
+assert_null($meta['created_by'],    'entity.meta.created_by is null when not in metadata');
+assert_null($meta['modified_by'],   'entity.meta.modified_by is null when not in metadata');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 3: entity.meta timestamps as ISO 8601
@@ -333,6 +335,38 @@ $meta7    = $result7['entity']['meta'];
 
 assert_eq($meta7['content_url'], 'https://www.comune.example.it/test', 'content_url set even when api_url is null');
 assert_null($meta7['api_url'],   'api_url is null when metadata.apiUrl is explicitly null');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 10: created_by and modified_by mapped from metadata
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadWithUsers = [
+    'metadata' => [
+        'id'        => '99',
+        'languages' => ['it-IT'],
+        'name'      => ['it-IT' => 'Test'],
+        'createdBy'  => ['id' => 14, 'login' => 'admin',    'name' => 'Administrator'],
+        'modifiedBy' => ['id' => 55, 'login' => 'editor01', 'name' => 'Mario Rossi'],
+    ],
+    'data' => [],
+];
+
+$formatter8 = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$result8    = $formatter8->format($payloadWithUsers);
+$meta8      = $result8['entity']['meta'];
+
+assert_eq($meta8['created_by'],  ['id' => 14, 'login' => 'admin',    'name' => 'Administrator'], 'created_by mapped correctly');
+assert_eq($meta8['modified_by'], ['id' => 55, 'login' => 'editor01', 'name' => 'Mario Rossi'],   'modified_by mapped correctly');
+
+// null passes through
+$payloadNoUsers = [
+    'metadata' => ['id' => '100', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X'],
+                   'createdBy' => null, 'modifiedBy' => null],
+    'data' => [],
+];
+$result9 = $formatter8->format($payloadNoUsers);
+assert_null($result9['entity']['meta']['created_by'],  'created_by null when metadata.createdBy is null');
+assert_null($result9['entity']['meta']['modified_by'], 'modified_by null when metadata.modifiedBy is null');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results
