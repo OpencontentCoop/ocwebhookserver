@@ -174,8 +174,8 @@ $message = consume_message($BROKER, $TOPIC, $startOffset, 5000);
 assert_true($message !== null, 'Message arrived on Kafka topic after produce()');
 assert_eq(
     $message !== null ? $message->key : null,
-    'test-tenant-uuid-1234:42',
-    'Message partition key equals entity.meta.id (tenantId:objectId)'
+    'test-tenant-uuid-1234',
+    'Message partition key equals TenantId (ordering per tenant)'
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

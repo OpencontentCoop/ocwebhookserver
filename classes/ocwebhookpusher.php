@@ -75,8 +75,11 @@ class OCWebHookPusher
                         $siteaccess = eZSiteAccess::current();
                         $siteaccessName = isset($siteaccess['name']) ? $siteaccess['name'] : 'default';
                         $kafkaIni = eZINI::instance('webhook.ini');
-                        $tenantId = $kafkaIni->variable('KafkaSettings', 'TenantId') ?: (getenv('EZ_INSTANCE') ?: null);
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $tenantId);
+                        $tenantId  = $kafkaIni->variable('KafkaSettings', 'TenantId') ?: null;
+                        // instanceId per entity.meta.id: usa EZ_INSTANCE (es. "opencity"),
+                        // non il TenantId UUID — i due concetti sono separati.
+                        $instanceId = getenv('EZ_INSTANCE') ?: $siteaccessName;
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId);
                         $payload = $formatter->format($payload);
                     }
 
