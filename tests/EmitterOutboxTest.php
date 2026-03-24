@@ -32,7 +32,7 @@ class SpyQueue
     public function pushJobs(array $jobs): self
     {
         $this->pushJobsCalled = true;
-        $this->receivedJobs   = $jobs;
+        $this->receivedJobs   = array_merge($this->receivedJobs, $jobs);
         return $this;
     }
 
@@ -190,10 +190,13 @@ class OCWebHook
 
 class OCWebHookQueue
 {
+    const HANDLER_IMMEDIATE = 1;
+    const HANDLER_SCHEDULED = 2;
+
     /** @var SpyQueue */
     public static $spy;
 
-    public static function instance(string $handler): SpyQueue
+    public static function instance($handler): SpyQueue
     {
         return self::$spy;
     }
