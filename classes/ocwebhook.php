@@ -125,7 +125,7 @@ class OCWebHook extends eZPersistentObject
             if (is_string($trigger)) {
                 $trigger = ['identifier' => $trigger, 'filters' => ''];
             }
-            $db->query("INSERT INTO ocwebhook_trigger_link ( webhook_id, trigger_identifier, filters ) VALUES ( '" . (int)$this->attribute('id') . "', '" . $db->escapeString($trigger['identifier']) . "', '" . $db->escapeString($trigger['filters']) . "' )");
+            $db->query("INSERT INTO ocwebhook_trigger_link ( webhook_id, trigger_identifier, filters ) VALUES ( '" . (int)$this->attribute('id') . "', '" . $db->escapeString($trigger['identifier']) . "', '" . $db->escapeString($trigger['filters'] ?? '') . "' )");
         }
         $db->commit();
         $this->triggers = null;

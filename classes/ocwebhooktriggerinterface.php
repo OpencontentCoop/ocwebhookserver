@@ -33,9 +33,4 @@ interface OCWebHookTriggerInterface
      * @return bool
      */
     public function isValidPayload($payload, $filters);
-
-    /**
-     * @return int One of OCWebHookQueue::HANDLER_* constants
-     */
-    public function getQueueHandler();
 }

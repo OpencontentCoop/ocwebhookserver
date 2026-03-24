@@ -32,6 +32,7 @@ class OCWebHookEmitter
         }
 
         $jobs = [];
+        $kafkaJobs = [];
         foreach ($webHooks as $webHook) {
             $job = new OCWebHookJob([
                 'webhook_id'         => $webHook->attribute('id'),
@@ -45,9 +46,18 @@ class OCWebHookEmitter
                 continue;
             }
             $job->store();
-            $jobs[] = $job;
+            if ($isKafka){
+                $kafkaJobs[] = $job;
+            } else {
+                $jobs[] = $job;
+            }
+        }
+        if (!empty($kafkaJobs)) {
+            OCWebHookQueue::instance(OCWebHookQueue::HANDLER_IMMEDIATE)->pushJobs($kafkaJobs)->execute();
+        }
+        if (!empty($jobs)) {
+            OCWebHookQueue::instance($queueHandlerIdentifier)->pushJobs($jobs)->execute();
         }
 
-        OCWebHookQueue::instance($queueHandlerIdentifier)->pushJobs($jobs)->execute();
     }
 }

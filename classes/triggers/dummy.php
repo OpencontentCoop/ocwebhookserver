@@ -1,6 +1,6 @@
 <?php
 
-class DummyTrigger implements OCWebHookTriggerInterface
+class DummyTrigger implements OCWebHookTriggerInterface, OCWebHookTriggerQueueAwareInterface
 {
     const IDENTIFIER = 'dummy_example';
 

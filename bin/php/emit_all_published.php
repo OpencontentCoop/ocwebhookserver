@@ -70,7 +70,8 @@ if (!$triggerInstance instanceof OCWebHookTriggerInterface) {
     $cli->error("Trigger '$triggerIdentifier' non registrato. Verificare webhook.ini [TriggersSettings].");
     $script->shutdown(1);
 }
-$queueHandler = $triggerInstance->getQueueHandler();
+$queueHandler = $triggerInstance instanceof OCWebHookTriggerQueueAwareInterface ?
+    $triggerInstance->getQueueHandler() : OCWebHookQueue::defaultHandler();
 
 // ── Ambiente ocopendata (usato per buildare il payload) ────────────────────
 

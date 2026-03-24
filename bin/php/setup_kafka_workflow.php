@@ -31,6 +31,7 @@ $script = eZScript::instance([
     'use-extensions' => true,
 ]);
 $script->startup();
+$options = $script->getOptions();
 $script->initialize();
 
 // ── Verifica che Kafka sia abilitato ─────────────────────────────────────────

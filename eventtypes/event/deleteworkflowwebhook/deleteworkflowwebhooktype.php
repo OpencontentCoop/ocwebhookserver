@@ -40,7 +40,7 @@ class DeleteWorkflowWebHookType extends eZWorkflowEventType
                     $payload['metadata']['baseUrl'] = eZSys::serverURL();
 
                     $triggerInstance = OCWebHookTriggerRegistry::registeredTrigger(DeleteWebHookTrigger::IDENTIFIER);
-                    $queueHandler = $triggerInstance instanceof OCWebHookTriggerInterface
+                    $queueHandler = $triggerInstance instanceof OCWebHookTriggerQueueAwareInterface
                         ? $triggerInstance->getQueueHandler()
                         : OCWebHookQueue::defaultHandler();
                     OCWebHookEmitter::emit(

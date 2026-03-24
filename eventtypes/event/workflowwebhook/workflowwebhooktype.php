@@ -38,7 +38,7 @@ class WorkflowWebHookType extends eZWorkflowEventType
                     $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
                     $triggerInstance = OCWebHookTriggerRegistry::registeredTrigger(PostPublishWebHookTrigger::IDENTIFIER);
-                    $queueHandler = $triggerInstance instanceof OCWebHookTriggerInterface
+                    $queueHandler = $triggerInstance instanceof OCWebHookTriggerQueueAwareInterface
                         ? $triggerInstance->getQueueHandler()
                         : OCWebHookQueue::defaultHandler();
                     OCWebHookEmitter::emit(

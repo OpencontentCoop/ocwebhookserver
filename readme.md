@@ -24,10 +24,10 @@ evento CMS (es. pubblicazione)
 
 Ogni trigger dichiara la propria modalità tramite `getQueueHandler()`:
 
-| Modalità | Costante | Comportamento |
-|----------|----------|---------------|
+| Modalità      | Costante            | Comportamento                                                                                               |
+|---------------|---------------------|-------------------------------------------------------------------------------------------------------------|
 | **Immediata** | `HANDLER_IMMEDIATE` | Il job viene eseguito subito nel processo corrente. Se fallisce rimane `FAILED` in DB e il cron lo riprova. |
-| **Differita** | `HANDLER_SCHEDULED` | Il job rimane `PENDING` in DB; il worker o il cron lo eseguono in background. |
+| **Differita** | `HANDLER_SCHEDULED` | Il job rimane `PENDING` in DB; il worker o il cron lo eseguono in background.                               |
 
 Il trigger `post_publish` usa `HANDLER_IMMEDIATE` — l'evento Kafka viene inviato
 in sincrono durante la pubblicazione del contenuto.
@@ -36,9 +36,9 @@ in sincrono durante la pubblicazione del contenuto.
 
 Il transport è determinato dall'**URL configurato nel webhook**:
 
-| URL | Transport |
-|-----|-----------|
-| `https://esempio.com/webhook` | HTTP POST via Guzzle |
+| URL                                       | Transport                               |
+|-------------------------------------------|-----------------------------------------|
+| `https://esempio.com/webhook`             | HTTP POST via Guzzle                    |
 | `kafka://broker1:9092,broker2:9092/topic` | Produce su Kafka con header CloudEvents |
 
 `OCWebHookPusher` rileva lo schema dell'URL e instrada il job al transport corretto.
@@ -55,16 +55,16 @@ il **value** contiene solo i dati dell'entità.
 
 ### Header
 
-| Header | Valore |
-|--------|--------|
-| `ce_specversion` | `1.0` |
-| `ce_id` | UUID v4 generato al produce |
-| `ce_type` | `it.opencity.<product>.<domain>.<event>` (da `KafkaCeTypeMap`) |
-| `ce_source` | `urn:opencity:<product>:<tenant-uuid>` |
-| `ce_time` | ISO 8601, momento del produce |
-| `content-type` | `application/json` |
-| `oc_app_name` | nome variante prodotto (es. `website-comuni`) |
-| `oc_app_version` | versione applicativo |
+| Header           | Valore                                                         |
+|------------------|----------------------------------------------------------------|
+| `ce_specversion` | `1.0`                                                          |
+| `ce_id`          | UUID v4 generato al produce                                    |
+| `ce_type`        | `it.opencity.<product>.<domain>.<event>` (da `KafkaCeTypeMap`) |
+| `ce_source`      | `urn:opencity:<product>:<tenant-uuid>`                         |
+| `ce_time`        | ISO 8601, momento del produce                                  |
+| `content-type`   | `application/json`                                             |
+| `oc_app_name`    | nome variante prodotto (es. `website-comuni`)                  |
+| `oc_app_version` | versione applicativo                                           |
 
 ### Payload
 
@@ -127,7 +127,7 @@ composer require opencontent/ocwebhookserver-ls
 
 ## Creare un trigger
 
-1. Implementare `OCWebHookTriggerInterface`
+1. Implementare `OCWebHookTriggerInterface` + `OCWebHookTriggerQueueAwareInterface`
 2. Registrarlo in `webhook.ini [TriggersSettings] TriggerList[]`
 3. Emettere l'evento nel codice:
 
@@ -148,6 +148,6 @@ Vedi `eventtypes/event/workflowwebhook/workflowwebhooktype.php` come esempio.
 
 ## Cron jobs
 
-| Part | Script | Funzione |
-|------|--------|----------|
+| Part       | Script                   | Funzione                                                                              |
+|------------|--------------------------|---------------------------------------------------------------------------------------|
 | `frequent` | `reset_running_jobs.php` | Riporta in `PENDING` i job bloccati in `RUNNING` da più di `RunningJobTimeoutSeconds` |

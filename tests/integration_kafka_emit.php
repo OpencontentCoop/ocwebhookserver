@@ -181,7 +181,8 @@ echo "Kafka offset before emit: $startOffset\n";
 OCWebHookEmitter::emit(
     $triggerIdentifier,
     $payload,
-    $trigger->getQueueHandler()
+    $trigger instanceof OCWebHookTriggerQueueAwareInterface ?
+        $trigger->getQueueHandler() : OCWebHookQueue::defaultHandler()
 );
 
 echo "emit() called — waiting for Kafka message...\n\n";
