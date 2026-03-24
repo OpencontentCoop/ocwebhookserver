@@ -206,14 +206,10 @@ class OCWebHookKafkaSetupService
      */
     public static function setupFromIni($stepInstaller = null)
     {
-        $logFile = '/tmp/kafka_setup_debug.log';
         $ini     = eZINI::instance('webhook.ini');
         $enabled = $ini->variable('KafkaSettings', 'Enabled');
 
-        file_put_contents($logFile, date('c') . " setupFromIni called. Enabled=" . var_export($enabled, true) . "\n", FILE_APPEND);
-
         if ($enabled !== 'enabled') {
-            file_put_contents($logFile, date('c') . " setupFromIni: Kafka disabled, returning early\n", FILE_APPEND);
             return;
         }
 
@@ -221,8 +217,6 @@ class OCWebHookKafkaSetupService
         $brokers = is_array($brokers) ? array_filter(array_values($brokers)) : [];
 
         $topic = (string)$ini->variable('KafkaSettings', 'Topic');
-
-        file_put_contents($logFile, date('c') . " Brokers=" . json_encode($brokers) . " Topic=" . var_export($topic, true) . "\n", FILE_APPEND);
 
         if (empty($brokers)) {
             throw new RuntimeException(

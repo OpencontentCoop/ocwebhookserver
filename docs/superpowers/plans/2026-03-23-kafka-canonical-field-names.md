@@ -174,7 +174,7 @@ exit($FAILED > 0 ? 1 : 0);
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(php tests/FieldMapTest.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T app php /var/www/html/extension/ocwebhookserver/tests/FieldMapTest.php 2>&1); echo "$OUT"
 ```
 
 Expected output contains: `Class 'OCWebHookKafkaFieldMap' not found` (or similar fatal error).
@@ -368,7 +368,7 @@ class OCWebHookKafkaFieldMap
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(php tests/FieldMapTest.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T app php /var/www/html/extension/ocwebhookserver/tests/FieldMapTest.php 2>&1); echo "$OUT"
 ```
 
 Expected: all `[PASS]`, exit 0, `Results: N passed`.
@@ -579,7 +579,7 @@ exit($FAILED > 0 ? 1 : 0);
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(php tests/PayloadFormatterRenameTest.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T app php /var/www/html/extension/ocwebhookserver/tests/PayloadFormatterRenameTest.php 2>&1); echo "$OUT"
 ```
 
 Expected: `[FAIL]` on the rename assertions (e.g., `published_date` key does not exist). The formatter does not rename yet.
@@ -669,7 +669,7 @@ Replace it with:
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(php tests/PayloadFormatterRenameTest.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T app php /var/www/html/extension/ocwebhookserver/tests/PayloadFormatterRenameTest.php 2>&1); echo "$OUT"
 ```
 
 Expected: all `[PASS]`, exit 0.
@@ -678,7 +678,7 @@ Expected: all `[PASS]`, exit 0.
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(php tests/PayloadFormatterTest.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T app php /var/www/html/extension/ocwebhookserver/tests/PayloadFormatterTest.php 2>&1); echo "$OUT"
 ```
 
 Expected: all `[PASS]`, exit 0. (The original test uses an `article` payload with only `title`, `abstract`, `body`, `image` — none are in the rename map, so they pass through unchanged.)
@@ -731,7 +731,7 @@ $testFiles = [
 
 ```bash
 cd /home/lorello/src/ocwebhookserver
-OUT=$(SKIP_KAFKA=1 php tests/run_tests.php 2>&1); echo "$OUT"
+OUT=$(docker compose -f /home/lorello/src/opencontent/cms/docker-compose.yml exec -T -e SKIP_KAFKA=1 app php /var/www/html/extension/ocwebhookserver/tests/run_tests.php 2>&1); echo "$OUT"
 ```
 
 Expected: `✓ All test suites passed`, `Tests passed: 100%`, exit 0.
