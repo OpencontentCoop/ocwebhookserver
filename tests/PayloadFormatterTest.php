@@ -112,7 +112,9 @@ assert_eq($meta['type_id'],    'article',      'entity.meta.type_id');
 assert_eq($meta['version'],    3,              'entity.meta.version (cast to int)');
 assert_eq($meta['languages'],  ['it-IT', 'eng-GB'], 'entity.meta.languages');
 assert_eq($meta['name'],       'Titolo notizia',    'entity.meta.name (primary language)');
-assert_eq($meta['site_url'],   'https://www.comune.example.it', 'entity.meta.site_url');
+assert_eq($meta['site_url'],    'https://www.comune.example.it', 'entity.meta.site_url');
+assert_null($meta['content_url'],   'entity.meta.content_url is null when not in metadata');
+assert_null($meta['api_url'],       'entity.meta.api_url is null when not in metadata');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 3: entity.meta timestamps as ISO 8601
@@ -281,6 +283,56 @@ assert_true(
     strpos($meta5['published_at'], '1970') === false,
     'published_at is not 1970 (ISO 8601 string parsed correctly)'
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 9: content_url and api_url mapped from metadata
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadWithUrls = [
+    'metadata' => [
+        'id'               => '77',
+        'classIdentifier'  => 'article',
+        'languages'        => ['it-IT'],
+        'name'             => ['it-IT' => 'Test notizia'],
+        'baseUrl'          => 'https://www.comune.example.it',
+        'contentUrl'       => 'https://www.comune.example.it/notizie/test-notizia',
+        'apiUrl'           => 'https://www.comune.example.it/api/openapi/novita/notizie/abc123#test-notizia',
+    ],
+    'data' => [],
+];
+
+$formatter6 = new OCWebHookKafkaPayloadFormatter('frontend', 'example');
+$result6    = $formatter6->format($payloadWithUrls);
+$meta6      = $result6['entity']['meta'];
+
+assert_eq(
+    $meta6['content_url'],
+    'https://www.comune.example.it/notizie/test-notizia',
+    'entity.meta.content_url mapped from metadata.contentUrl'
+);
+assert_eq(
+    $meta6['api_url'],
+    'https://www.comune.example.it/api/openapi/novita/notizie/abc123#test-notizia',
+    'entity.meta.api_url mapped from metadata.apiUrl'
+);
+
+// null apiUrl (ocopenapi not available) passes through as null
+$payloadUrlNullApi = [
+    'metadata' => [
+        'id'         => '78',
+        'languages'  => ['it-IT'],
+        'name'       => ['it-IT' => 'Test'],
+        'baseUrl'    => 'https://www.comune.example.it',
+        'contentUrl' => 'https://www.comune.example.it/test',
+        'apiUrl'     => null,
+    ],
+    'data' => [],
+];
+$result7  = $formatter6->format($payloadUrlNullApi);
+$meta7    = $result7['entity']['meta'];
+
+assert_eq($meta7['content_url'], 'https://www.comune.example.it/test', 'content_url set even when api_url is null');
+assert_null($meta7['api_url'],   'api_url is null when metadata.apiUrl is explicitly null');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results
