@@ -112,6 +112,8 @@ class OCWebHookKafkaPayloadFormatter
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
                     }
+                    // Resolve multi-language maps to the current language (e.g. relation item "name" fields)
+                    $content = self::resolveForLanguage($content, $lang);
                     $data[$lang][$attrName] = self::toUtcValue($content);
                 }
             }
@@ -146,6 +148,51 @@ class OCWebHookKafkaPayloadFormatter
         }
         $ts = strtotime($value);
         return $ts !== false ? $ts : 0;
+    }
+
+    /**
+     * Recursively resolve multi-language maps to a single value for the given language.
+     *
+     * ocopendata returns relation items with a "name" field (and other fields) as a map
+     * of {lang-code: value} pairs, e.g. {"eng-GB": "Innovation", "ita-IT": "Innovazione"}.
+     * When serialising entity.data.eng-GB, those maps should be resolved to "Innovation".
+     *
+     * Detection: an associative array (no integer index 0) whose ALL keys match
+     * the BCP-47 pattern /^[a-z]{2,3}-[A-Z]{2}$/ is treated as a multi-language map.
+     * Arrays with mixed/numeric keys (lists, relation-item arrays) are traversed recursively.
+     *
+     * @param mixed  $value  Value from a content attribute or relation item
+     * @param string $lang   Current language code (e.g. "ita-IT")
+     * @return mixed
+     */
+    private static function resolveForLanguage($value, $lang)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        // Is it a multi-language map? (non-empty, no numeric keys, all keys look like lang codes)
+        if (!isset($value[0]) && count($value) > 0) {
+            $allLangKeys = true;
+            foreach (array_keys($value) as $k) {
+                if (!preg_match('/^[a-z]{2,3}-[A-Z]{2}$/', $k)) {
+                    $allLangKeys = false;
+                    break;
+                }
+            }
+            if ($allLangKeys) {
+                if (array_key_exists($lang, $value)) {
+                    return $value[$lang];
+                }
+                $first = reset($value);
+                return $first !== false ? $first : null;
+            }
+        }
+        // Recurse into list or object array
+        $result = [];
+        foreach ($value as $k => $v) {
+            $result[$k] = self::resolveForLanguage($v, $lang);
+        }
+        return $result;
     }
 
     /**

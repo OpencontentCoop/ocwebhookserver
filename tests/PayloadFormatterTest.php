@@ -380,7 +380,71 @@ assert_null($result9['entity']['meta']['created_by'],  'created_by null when met
 assert_null($result9['entity']['meta']['modified_by'], 'modified_by null when metadata.modifiedBy is null');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 11: date strings in entity.data normalised to UTC
+// TEST 11: multi-language maps in relation items resolved to current language
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadMultilang = [
+    'metadata' => ['id' => '150', 'languages' => ['eng-GB', 'ita-IT'], 'name' => ['eng-GB' => 'EN', 'ita-IT' => 'IT']],
+    'data' => [
+        'eng-GB' => [
+            // relation item with multilang name map
+            'topics' => ['content' => [
+                [
+                    'id'     => 1,
+                    'name'   => ['eng-GB' => 'Innovation', 'ger-DE' => 'Innovation', 'ita-IT' => 'Innovazione'],
+                    'languages' => ['eng-GB', 'ger-DE', 'ita-IT'],  // list: must NOT be resolved
+                ],
+            ], 'type' => 'eztags'],
+            // relation item whose name only exists in ita-IT → fallback
+            'author' => ['content' => [
+                [
+                    'id'   => 5,
+                    'name' => ['ita-IT' => 'Ufficio anagrafe'],
+                ],
+            ], 'type' => 'ezobjectrelationlist'],
+        ],
+        'ita-IT' => [
+            'topics' => ['content' => [
+                [
+                    'id'     => 1,
+                    'name'   => ['eng-GB' => 'Innovation', 'ger-DE' => 'Innovation', 'ita-IT' => 'Innovazione'],
+                    'languages' => ['eng-GB', 'ger-DE', 'ita-IT'],
+                ],
+            ], 'type' => 'eztags'],
+        ],
+    ],
+];
+
+$formatterML = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resultML    = $formatterML->format($payloadMultilang);
+
+// eng-GB section: name resolved to English
+assert_eq(
+    $resultML['entity']['data']['eng-GB']['topics'][0]['name'],
+    'Innovation',
+    'Relation item name resolved to eng-GB in eng-GB section'
+);
+// ita-IT section: name resolved to Italian
+assert_eq(
+    $resultML['entity']['data']['ita-IT']['topics'][0]['name'],
+    'Innovazione',
+    'Relation item name resolved to ita-IT in ita-IT section'
+);
+// "languages" inside relation item is a list, not a lang map → not resolved
+assert_eq(
+    $resultML['entity']['data']['eng-GB']['topics'][0]['languages'],
+    ['eng-GB', 'ger-DE', 'ita-IT'],
+    'languages list inside relation item left as-is (not resolved as multi-lang map)'
+);
+// Fallback: name only in ita-IT, requested lang is eng-GB → returns ita-IT value
+assert_eq(
+    $resultML['entity']['data']['eng-GB']['author'][0]['name'],
+    'Ufficio anagrafe',
+    'Multi-lang map with missing eng-GB falls back to first available language'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 13: date strings in entity.data normalised to UTC
 // ocopendata uses date('c', $ts) → "+01:00" local timezone
 // ─────────────────────────────────────────────────────────────────────────────
 
