@@ -105,6 +105,7 @@ assert_true(
 $meta = $result['entity']['meta'];
 
 assert_eq($meta['id'],         'comune_it:42', 'entity.meta.id = "<siteaccess>:<object_id>"');
+assert_eq($meta['tenant_id'],  null,           'entity.meta.tenant_id is null when not provided');
 assert_eq($meta['siteaccess'], 'comune_it',    'entity.meta.siteaccess');
 assert_eq($meta['object_id'],  '42',           'entity.meta.object_id');
 assert_eq($meta['remote_id'],  'abc123remote', 'entity.meta.remote_id');
@@ -170,6 +171,16 @@ assert_eq(
     $result2['entity']['meta']['siteaccess'],
     'pat_pub',
     'Different siteaccess stored in entity.meta.siteaccess'
+);
+assert_null($result2['entity']['meta']['tenant_id'], 'tenant_id null when not passed to constructor');
+
+// tenant_id valorizzato
+$formatterWithTenant = new OCWebHookKafkaPayloadFormatter('frontend', 'comune', '00000000-0000-0000-0000-000000000001');
+$resultWithTenant    = $formatterWithTenant->format($ocPayload);
+assert_eq(
+    $resultWithTenant['entity']['meta']['tenant_id'],
+    '00000000-0000-0000-0000-000000000001',
+    'tenant_id propagated to entity.meta.tenant_id when passed to constructor'
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

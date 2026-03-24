@@ -13,6 +13,7 @@
  *   metadata.currentVersion  → entity.meta.version
  *   metadata.languages       → entity.meta.languages
  *   metadata.name            → entity.meta.name  (primary language)
+ *   (constructor $tenantId)  → entity.meta.tenant_id
  *   metadata.baseUrl         → entity.meta.site_url
  *   metadata.contentUrl      → entity.meta.content_url  (public frontend URL)
  *   metadata.apiUrl          → entity.meta.api_url      (ocopenapi resource URI, null if ocopenapi unavailable)
@@ -32,15 +33,20 @@ class OCWebHookKafkaPayloadFormatter
     /** @var string Instance identifier for entity.meta.id prefix (e.g. EZ_INSTANCE "bugliano") */
     private $instanceId;
 
+    /** @var string|null Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id) */
+    private $tenantId;
+
     /**
      * @param string      $siteaccess  eZ Publish siteaccess name (e.g. "frontend")
      * @param string|null $instanceId  Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
      *                                 Defaults to $siteaccess when null.
+     * @param string|null $tenantId    Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
      */
-    public function __construct($siteaccess, $instanceId = null)
+    public function __construct($siteaccess, $instanceId = null, $tenantId = null)
     {
         $this->siteaccess = $siteaccess;
         $this->instanceId = $instanceId !== null ? $instanceId : $siteaccess;
+        $this->tenantId   = $tenantId;
     }
 
     /**
@@ -68,6 +74,7 @@ class OCWebHookKafkaPayloadFormatter
 
         $meta = [
             'id'           => $this->instanceId . ':' . $objectId,
+            'tenant_id'    => $this->tenantId,
             'siteaccess'   => $this->siteaccess,
             'object_id'    => $objectId,
             'remote_id'    => isset($metadata['remoteId'])          ? $metadata['remoteId']          : null,

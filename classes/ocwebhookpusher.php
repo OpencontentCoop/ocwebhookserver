@@ -79,7 +79,7 @@ class OCWebHookPusher
                         // instanceId per entity.meta.id: usa EZ_INSTANCE (es. "opencity"),
                         // non il TenantId UUID — i due concetti sono separati.
                         $instanceId = OpenPABase::getCurrentSiteaccessIdentifier();
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId);
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId);
                         $payload = $formatter->format($payload);
                     }
 
