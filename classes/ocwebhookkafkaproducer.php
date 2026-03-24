@@ -146,9 +146,9 @@ class OCWebHookKafkaProducer
 
         try {
             $topic = $this->producer->newTopic($this->topic);
-            $messageKey = (is_array($payload) && isset($payload['entity']['meta']['id']))
-                ? $payload['entity']['meta']['id']
-                : ($this->tenantId ?: null);
+            // La partition key è sempre il TenantId: tutti i messaggi dello stesso
+            // tenant finiscono sulla stessa partizione, garantendo ordinamento temporale.
+            $messageKey = $this->tenantId;
 
             $topic->producev(
                 RD_KAFKA_PARTITION_UA,
