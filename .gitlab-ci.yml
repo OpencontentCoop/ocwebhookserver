@@ -1,0 +1,87 @@
+stages:
+  - test
+
+variables:
+  # Broker address visible inside the CI job (service hostname = image alias)
+  KAFKA_BROKER: "redpanda:9092"
+  KAFKA_TOPIC:  "cms-test"
+
+# ── Kafka integration tests ──────────────────────────────────────────────────
+#
+# Spins up Redpanda (single-node, Kafka-compatible) as a GitLab CI service.
+# The CMS image already has PHP 7.2 + rdkafka preinstalled.
+#
+# Two test suites run:
+#   1. EmitterOutboxTest  — logic tests (no broker needed, uses spy objects)
+#   2. KafkaProducerTest  — integration tests (produce + consume via Redpanda)
+#
+# Test 1 verifies:
+#   - When Kafka is UP: jobs written to DB, produce() called, jobs removed after ack
+#   - When Kafka is DOWN: jobs written to DB, HTTP fallback queue invoked, jobs stay PENDING
+#   - When Kafka is DISABLED: HTTP path used directly, produce() never called
+#
+# Test 2 verifies:
+#   - rdkafka extension is loaded
+#   - A message produced via OCWebHookKafkaProducer arrives on the Kafka topic
+#   - produce() returns false (within FlushTimeoutMs) when broker is unreachable
+
+test_kafka:
+  stage: test
+  image: registry.gitlab.com/opencity-labs/sito-istituzionale/app:latest
+  services:
+    - name: redpandadata/redpanda:latest
+      alias: redpanda
+      command:
+        - redpanda
+        - start
+        - --smp 1
+        - --memory 512M
+        - --overprovisioned
+        - --node-id 0
+        - --kafka-addr PLAINTEXT://0.0.0.0:9092
+        - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+  variables:
+    KAFKA_BROKER: "redpanda:9092"
+    KAFKA_TOPIC:  "cms-test"
+    # Tell KafkaProducer which broker to use via eZINI stub
+    EZINI_webhook__KafkaSettings__Enabled: "enabled"
+    EZINI_webhook__KafkaSettings__Brokers_0: "redpanda:9092"
+    EZINI_webhook__KafkaSettings__Topic: "cms-test"
+    EZINI_webhook__KafkaSettings__FlushTimeoutMs: "2000"
+  before_script:
+    # Wait for Redpanda to be ready (up to 30s)
+    - |
+      echo "Waiting for Redpanda to be ready..."
+      for i in $(seq 1 30); do
+        if /usr/bin/rpk cluster info --brokers redpanda:9092 > /dev/null 2>&1; then
+          echo "Redpanda ready after ${i}s"
+          break
+        fi
+        sleep 1
+      done
+    # Create the test topic
+    - /usr/bin/rpk topic create cms-test --brokers redpanda:9092 || true
+  script:
+    - cd /var/www/html/extension/ocwebhookserver
+    - php tests/run_tests.php
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+# ── Emitter logic tests only (no Kafka service needed) ───────────────────────
+#
+# Faster job that runs the outbox logic tests without a Kafka broker.
+# Useful for MR pipelines where full integration may be slow.
+
+test_emitter_logic:
+  stage: test
+  image: registry.gitlab.com/opencity-labs/sito-istituzionale/app:latest
+  variables:
+    SKIP_KAFKA: "1"
+  script:
+    - cd /var/www/html/extension/ocwebhookserver
+    - php tests/run_tests.php
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'

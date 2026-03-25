@@ -89,15 +89,16 @@
                             </td>
                             <td>
                                 {if $webhook.enabled|ne(1)}
-                                    <button type="submit" class="btn btn-xs btn-success" name="EnableWebHook" value="{$webhook.id}">{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                    <button type="submit" class="btn btn-xs btn-success" name="EnableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
                                 {else}
-                                    <button type="submit" class="btn btn-xs btn-danger" name="DisableWebHook" value="{$webhook.id}">{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                    <button type="submit" class="btn btn-xs btn-danger" name="DisableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
                                 {/if}
                             </td>
                             <td>
                                 <a class="btn btn-xs btn-light" href="{concat('webhook/logs/', $webhook.id)|ezurl(no)}">{"Logs"|i18n( 'extension/ocwebhookserver' )}</a>
                             </td>
                             <td>
+                                {if $webhook.url|extract_left(8)|ne('kafka://')}
                                 <div class="dropdown">
                                     <button type="button" class="btn btn-xs btn-light dropdown-toggle text-nowrap" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                         {"Edit"|i18n( 'extension/ocwebhookserver' )} <i class="fa fa-caret-down"></i>
@@ -108,6 +109,7 @@
                                            href="{concat('webhook/remove/', $webhook.id)|ezurl(no)}"><i class="fa fa-trash"></i> {"Remove"|i18n( 'extension/ocwebhookserver' )}</a>
                                     </div>
                                 </div>
+                                {/if}
                             </td>
                             <td class="text-center">
                                 {if is_set($stats[$webhook.id]['pending'])}{$stats[$webhook.id]['pending']}{else}0{/if}

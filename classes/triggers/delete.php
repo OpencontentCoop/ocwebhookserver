@@ -1,6 +1,6 @@
 <?php
 
-class DeleteWebHookTrigger implements OCWebHookTriggerInterface
+class DeleteWebHookTrigger implements OCWebHookTriggerInterface, OCWebHookTriggerQueueAwareInterface
 {
     const IDENTIFIER = 'delete_ocopendata';
 
@@ -44,6 +44,11 @@ class DeleteWebHookTrigger implements OCWebHookTriggerInterface
     public function isValidPayload($payload, $filters)
     {
         return true;
+    }
+
+    public function getQueueHandler()
+    {
+        return OCWebHookQueue::HANDLER_SCHEDULED;
     }
 
 }

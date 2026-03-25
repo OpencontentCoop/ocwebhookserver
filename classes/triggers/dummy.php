@@ -1,6 +1,6 @@
 <?php
 
-class DummyTrigger implements OCWebHookTriggerInterface
+class DummyTrigger implements OCWebHookTriggerInterface, OCWebHookTriggerQueueAwareInterface
 {
     const IDENTIFIER = 'dummy_example';
 
@@ -32,6 +32,11 @@ class DummyTrigger implements OCWebHookTriggerInterface
     public function isValidPayload($payload, $filters)
     {
         return true;
+    }
+
+    public function getQueueHandler()
+    {
+        return OCWebHookQueue::HANDLER_SCHEDULED;
     }
 
 }

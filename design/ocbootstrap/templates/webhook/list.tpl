@@ -90,15 +90,16 @@
                             </td>
                             <td>
                                 {if $webhook.enabled|ne(1)}
-                                    <button type="submit" class="btn btn-sm btn-success" name="EnableWebHook" value="{$webhook.id}">{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                    <button type="submit" class="btn btn-sm btn-success" name="EnableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
                                 {else}
-                                    <button type="submit" class="btn btn-sm btn-danger" name="DisableWebHook" value="{$webhook.id}">{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                    <button type="submit" class="btn btn-sm btn-danger" name="DisableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
                                 {/if}
                             </td>
                             <td>
                                 <a class="btn btn-sm btn-default" href="{concat('webhook/logs/', $webhook.id)|ezurl(no)}">{"Logs"|i18n( 'extension/ocwebhookserver' )}</a>
                             </td>
                             <td>
+                                {if $webhook.url|extract_left(8)|ne('kafka://')}
                                 <div class="btn-group">
                                     <button type="button" class="btn btn-sm btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                         {"Edit"|i18n( 'extension/ocwebhookserver' )} <span class="caret"></span>
@@ -113,6 +114,7 @@
                                         </li>
                                     </ul>
                                 </div>
+                                {/if}
                             </td>
                             <td class="text-center">
                                 {if is_set($stats[$webhook.id]['pending'])}{$stats[$webhook.id]['pending']}{else}0{/if}

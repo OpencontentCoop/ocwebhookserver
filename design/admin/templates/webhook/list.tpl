@@ -101,17 +101,21 @@
                                     </td>
                                     <td>
                                         {if $webhook.enabled|ne(1)}
-                                            <button type="submit" class="button" name="EnableWebHook" value="{$webhook.id}">{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                            <button type="submit" class="button" name="EnableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Enable"|i18n( 'extension/ocwebhookserver' )}</button>
                                         {else}
-                                            <button type="submit" class="button" name="DisableWebHook" value="{$webhook.id}">{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
+                                            <button type="submit" class="button" name="DisableWebHook" value="{$webhook.id}"{if $webhook.url|extract_left(8)|eq('kafka://')} disabled="disabled"{/if}>{"Disable"|i18n( 'extension/ocwebhookserver' )}</button>
                                         {/if}
                                     </td>
                                     <td>
+                                        {if $webhook.url|extract_left(8)|ne('kafka://')}
                                         <a href="{concat('webhook/edit/', $webhook.id)|ezurl(no)}"><img alt="{"Edit"|i18n( 'extension/ocwebhookserver' )}" src={'edit.png'|ezimage} /></a>
+                                        {/if}
                                     </td>
                                     <td>
+                                        {if $webhook.url|extract_left(8)|ne('kafka://')}
                                         <a onclick="return confirm('{'Are you sure you want to cancel this webhook ?'|i18n( 'extension/ocwebhookserver' )}')"
                                            href="{concat('webhook/remove/', $webhook.id)|ezurl(no)}"><img alt="{"Remove"|i18n( 'extension/ocwebhookserver' )}" src={'trash.png'|ezimage} /></a>
+                                        {/if}
                                     </td>
                                 </tr>
                             {/foreach}

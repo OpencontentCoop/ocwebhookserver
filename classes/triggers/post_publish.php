@@ -1,6 +1,6 @@
 <?php
 
-class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
+class PostPublishWebHookTrigger implements OCWebHookTriggerInterface, OCWebHookTriggerQueueAwareInterface
 {
     const IDENTIFIER = 'post_publish_ocopendata';
 
@@ -44,6 +44,11 @@ class PostPublishWebHookTrigger implements OCWebHookTriggerInterface
     public function isValidPayload($payload, $filters)
     {
         return true;
+    }
+
+    public function getQueueHandler()
+    {
+        return OCWebHookQueue::HANDLER_SCHEDULED;
     }
 
 }
