@@ -55,16 +55,17 @@ il **value** contiene solo i dati dell'entità.
 
 ### Header
 
-| Header           | Valore                                                         |
-|------------------|----------------------------------------------------------------|
-| `ce_specversion` | `1.0`                                                          |
-| `ce_id`          | UUID v4 generato al produce                                    |
-| `ce_type`        | `it.opencity.<product>.<domain>.<event>` (da `KafkaCeTypeMap`) |
-| `ce_source`      | `urn:opencity:<product>:<tenant-uuid>`                         |
-| `ce_time`        | ISO 8601, momento del produce                                  |
-| `content-type`   | `application/json`                                             |
-| `oc_app_name`    | nome variante prodotto (es. `website-comuni`)                  |
-| `oc_app_version` | versione applicativo                                           |
+| Header            | Valore                                                          |
+|-------------------|-----------------------------------------------------------------|
+| `ce_specversion`  | `1.0`                                                           |
+| `ce_id`           | UUID v4 generato al produce                                     |
+| `ce_type`         | `it.opencity.<product>.<domain>.<event>` (da `KafkaCeTypeMap`)  |
+| `ce_source`       | `urn:opencity:<product>:<tenant-uuid>`                          |
+| `ce_time`         | ISO 8601 UTC, momento del produce                               |
+| `content-type`    | `application/json`                                              |
+| `oc_app_name`     | nome variante prodotto (es. `website-comuni`)                   |
+| `oc_app_version`  | versione applicativo                                            |
+| `oc_retry_count`  | numero di tentativi precedenti (0 al primo invio)               |
 
 ### Payload
 
@@ -72,19 +73,59 @@ il **value** contiene solo i dati dell'entità.
 {
   "entity": {
     "meta": {
-      "id": "<siteaccess>:<object_id>",
-      "siteaccess": "<siteaccess>",
-      "object_id": "...",
-      "type_id": "...",
-      ...
+      "id":           "<instanceId>:<object_id>",
+      "tenant_id":    "<uuid-tenant>",
+      "siteaccess":   "<siteaccess>",
+      "object_id":    "42",
+      "remote_id":    "abc123remote",
+      "type_id":      "article",
+      "version":      3,
+      "languages":    ["it-IT", "eng-GB"],
+      "name":         "Titolo notizia",
+      "site_url":     "https://www.comune.example.it",
+      "content_url":  "https://www.comune.example.it/notizie/titolo-notizia",
+      "api_url":      "https://www.comune.example.it/api/openapi/novita/notizie/abc123remote#titolo-notizia",
+      "created_by":   {"id": 14, "login": "admin", "name": "Administrator"},
+      "modified_by":  {"id": 55, "login": "editor", "name": "Mario Rossi"},
+      "published_at": "2026-03-15T09:00:00Z",
+      "updated_at":   "2026-03-20T10:30:00Z"
     },
     "data": {
-      "it-IT": { ... },
-      "en-US": { ... }
+      "it-IT": {
+        "title":    "Titolo notizia",
+        "abstract": "Breve descrizione",
+        "topics": [
+          {
+            "id": 101,
+            "remote_id": "topic-xyz",
+            "class_identifier": "tag",
+            "main_node_id": "501",
+            "name": "Innovazione",
+            "content_url": "https://www.comune.example.it/argomenti/innovazione"
+          }
+        ]
+      },
+      "eng-GB": { "...": "..." }
     }
   }
 }
 ```
+
+#### Regole di formattazione del payload
+
+- **Tutti i timestamp** in `entity.meta` e in `entity.data` (inclusi quelli annidati
+  nei relation items) sono normalizzati a UTC (`YYYY-MM-DDTHH:MM:SSZ`).
+- **Relation items**: i campi camelCase di ocopendata vengono rinominati in snake_case
+  (`remoteId` → `remote_id`, `classIdentifier` → `class_identifier`,
+  `mainNodeId` → `main_node_id`). I campi ridondanti `class`, `languages` e `link`
+  vengono eliminati. Il campo `name` viene risolto alla lingua del blocco
+  `entity.data.<lang>` corrente se è una mappa multilingua.
+- **`content_url` negli elementi relazionati**: se l'elemento ha un `mainNodeId`,
+  viene iniettato `content_url` con l'URL pubblico del nodo eZ.
+- **Nomi canonici degli attributi**: per i content type configurati in
+  `OCWebHookKafkaFieldMap`, gli attributi vengono rinominati ai nomi canonici
+  di dominio (es. `titolo` → `title`, `testo` → `description`) per uniformità
+  tra istanze con modelli dati diversi.
 
 ### Configurazione
 
