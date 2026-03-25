@@ -243,6 +243,39 @@ assert_null($data4['subtitle'], 'Null grezzo (non content-wrapped) preservato co
 assert_eq($data4['title'],  'Titolo', 'Campo testo estratto correttamente');
 
 // Relation items: chiavi camelCase normalizzate a snake_case
+$dropPayload = [
+    'metadata' => ['id' => '50', 'classIdentifier' => 'article', 'languages' => ['it-IT']],
+    'data' => [
+        'it-IT' => [
+            'attachments' => ['content' => [
+                ['id' => 1, 'remoteId' => 'file-abc-123', 'classIdentifier' => 'file',
+                 'mainNodeId' => '210', 'name' => 'Relazione annuale.pdf',
+                 'class' => 'file',              // must be dropped
+                 'languages' => ['it-IT'],        // must be dropped
+                 'link' => 'read/210'],           // must be dropped
+                ['id' => 2, 'remoteId' => 'file-def-456', 'classIdentifier' => 'file',
+                 'mainNodeId' => '211', 'name' => 'Bilancio.pdf',
+                 'class' => 'file', 'languages' => ['it-IT'], 'link' => 'read/211'],
+            ], 'type' => 'ezbinaryfilecollection'],
+            'topics' => ['content' => [
+                ['id' => 101, 'remote_id' => 'topic-xyz', 'class_identifier' => 'tag',
+                 'main_node_id' => '501', 'class' => 'tag', 'languages' => ['it-IT'],
+                 'link' => 'read/101'],
+            ], 'type' => 'eztags'],
+            'files'    => ['content' => null, 'type' => 'ezbinaryfilecollection'],
+            'subtitle' => null,
+            'title'    => ['content' => 'Titolo', 'type' => 'ezstring'],
+        ],
+    ],
+];
+$formatter4 = new OCWebHookKafkaPayloadFormatter('frontend', 'bugliano');
+$result4    = $formatter4->format($dropPayload);
+$data4      = $result4['entity']['data']['it-IT'];
+
+assert_eq($data4['files'],  [], 'Null content normalizzato a [] (lista vuota)');
+assert_null($data4['subtitle'], 'Null grezzo (non content-wrapped) preservato come null');
+assert_eq($data4['title'],  'Titolo', 'Campo testo estratto correttamente');
+
 assert_eq(count($data4['attachments']), 2, 'Relation list: 2 item preservati');
 assert_eq($data4['attachments'][0]['remote_id'],       'file-abc-123', 'remoteId → remote_id normalizzato');
 assert_eq($data4['attachments'][0]['class_identifier'], 'file',        'classIdentifier → class_identifier normalizzato');
@@ -251,12 +284,17 @@ assert_eq($data4['attachments'][0]['name'],            'Relazione annuale.pdf', 
 assert_false(isset($data4['attachments'][0]['remoteId']),       'remoteId camelCase rimosso dopo normalizzazione');
 assert_false(isset($data4['attachments'][0]['classIdentifier']),'classIdentifier camelCase rimosso dopo normalizzazione');
 assert_false(isset($data4['attachments'][0]['mainNodeId']),     'mainNodeId camelCase rimosso dopo normalizzazione');
+assert_false(isset($data4['attachments'][0]['class']),          '"class" eliminato (duplicato di class_identifier)');
+assert_false(isset($data4['attachments'][0]['languages']),      '"languages" eliminato (ridondante)');
+assert_false(isset($data4['attachments'][0]['link']),           '"link" eliminato (path interno eZ)');
 assert_eq($data4['attachments'][1]['remote_id'], 'file-def-456', 'Secondo item: remote_id normalizzato');
 
-// Relation items già in snake_case: pass-through senza modifiche
 assert_eq($data4['topics'][0]['remote_id'],       'topic-xyz', 'snake_case remote_id pass-through');
 assert_eq($data4['topics'][0]['class_identifier'], 'tag',      'snake_case class_identifier pass-through');
 assert_eq($data4['topics'][0]['main_node_id'],    '501',       'snake_case main_node_id pass-through');
+assert_false(isset($data4['topics'][0]['class']),     'topics: "class" eliminato');
+assert_false(isset($data4['topics'][0]['languages']), 'topics: "languages" eliminato');
+assert_false(isset($data4['topics'][0]['link']),      'topics: "link" eliminato');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 8: ISO 8601 date strings (real ocopendata format uses date('c'))
@@ -430,11 +468,10 @@ assert_eq(
     'Innovazione',
     'Relation item name resolved to ita-IT in ita-IT section'
 );
-// "languages" inside relation item is a list, not a lang map → not resolved
-assert_eq(
-    $resultML['entity']['data']['eng-GB']['topics'][0]['languages'],
-    ['eng-GB', 'ger-DE', 'ita-IT'],
-    'languages list inside relation item left as-is (not resolved as multi-lang map)'
+// "languages" inside relation item is dropped by normalizeRelationItem
+assert_false(
+    isset($resultML['entity']['data']['eng-GB']['topics'][0]['languages']),
+    '"languages" dropped from relation items by normalizeRelationItem'
 );
 // Fallback: name only in ita-IT, requested lang is eng-GB → returns ita-IT value
 assert_eq(

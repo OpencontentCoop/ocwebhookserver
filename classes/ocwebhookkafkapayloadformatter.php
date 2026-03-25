@@ -220,7 +220,15 @@ class OCWebHookKafkaPayloadFormatter
     }
 
     /**
-     * Normalize camelCase keys in a relation item (e.g. from ocopendata object relations).
+     * Normalize a relation item coming from ocopendata:
+     * - rename camelCase keys to snake_case
+     * - drop fields that are redundant or internal to eZ Publish
+     *
+     * Kept fields: id, remote_id, class_identifier, name, main_node_id
+     * Dropped:
+     *   - "class"     exact duplicate of class_identifier
+     *   - "languages" redundant once "name" is resolved to a single language
+     *   - "link"      internal eZ path like "read/121", not useful for consumers
      *
      * @param array $item
      * @return array
@@ -232,8 +240,12 @@ class OCWebHookKafkaPayloadFormatter
             'classIdentifier' => 'class_identifier',
             'mainNodeId'      => 'main_node_id',
         ];
+        static $drop = ['class' => true, 'languages' => true, 'link' => true];
         $result = [];
         foreach ($item as $key => $value) {
+            if (isset($drop[$key])) {
+                continue;
+            }
             $result[isset($renames[$key]) ? $renames[$key] : $key] = $value;
         }
         return $result;
