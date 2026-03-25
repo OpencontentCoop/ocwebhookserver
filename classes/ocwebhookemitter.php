@@ -10,43 +10,54 @@ class OCWebHookEmitter
     public static function emit($triggerIdentifier, $payload, $queueHandlerIdentifier)
     {
         $trigger = OCWebHookTriggerRegistry::registeredTrigger($triggerIdentifier);
-        if ($trigger instanceof OCWebHookTriggerInterface) {
-            $webHooks = OCWebHook::fetchEnabledListByTrigger($trigger->getIdentifier());
-            foreach ($webHooks as $index => $webHook) {
-                $filters = null;
-                if ($trigger->useFilter()) {
-                    $currentTriggers = $webHook->getTriggers();
-                    foreach ($currentTriggers as $currentTrigger) {
-                        if ($currentTrigger['identifier'] == $trigger->getIdentifier()) {
-                            $filters = $currentTrigger['filters'];
-                        }
+        if (!$trigger instanceof OCWebHookTriggerInterface) {
+            eZDebug::writeError("Trigger $triggerIdentifier not found", __METHOD__);
+            return;
+        }
+
+        $webHooks = OCWebHook::fetchEnabledListByTrigger($trigger->getIdentifier());
+        foreach ($webHooks as $index => $webHook) {
+            $filters = null;
+            if ($trigger->useFilter()) {
+                $currentTriggers = $webHook->getTriggers();
+                foreach ($currentTriggers as $currentTrigger) {
+                    if ($currentTrigger['identifier'] == $trigger->getIdentifier()) {
+                        $filters = $currentTrigger['filters'];
                     }
                 }
-                if (!$trigger->isValidPayload($payload, $filters)) {
-                    unset($webHooks[$index]);
-                }
             }
-
-            $jobs = [];
-            foreach ($webHooks as $webHook) {
-                $job = new OCWebHookJob([
-                    'webhook_id' => $webHook->attribute('id'),
-                    'trigger_identifier' => $trigger->getIdentifier(),
-                    'payload' => OCWebHookJob::encodePayload($payload),
-                ]);
-                if (filter_var($job->getSerializedEndpoint(), FILTER_VALIDATE_URL)) {
-                    $job->store();
-                    $jobs[] = $job;
-                }else{
-                    eZDebug::writeError("Invalid endpoint url: " . $job->getSerializedEndpoint(), __METHOD__);
-                }
+            if (!$trigger->isValidPayload($payload, $filters)) {
+                unset($webHooks[$index]);
             }
-
-            OCWebHookQueue::instance($queueHandlerIdentifier)
-                ->pushJobs($jobs)
-                ->execute();
-        } else {
-            eZDebug::writeError("Trigger $triggerIdentifier not found", __METHOD__);
         }
+
+        $jobs = [];
+        $kafkaJobs = [];
+        foreach ($webHooks as $webHook) {
+            $job = new OCWebHookJob([
+                'webhook_id'         => $webHook->attribute('id'),
+                'trigger_identifier' => $trigger->getIdentifier(),
+                'payload'            => OCWebHookJob::encodePayload($payload),
+            ]);
+            $endpoint = $job->getSerializedEndpoint();
+            $isKafka = strpos($endpoint, 'kafka://') === 0;
+            if (!$isKafka && !filter_var($endpoint, FILTER_VALIDATE_URL)) {
+                eZDebug::writeError("Invalid endpoint url: " . $endpoint, __METHOD__);
+                continue;
+            }
+            $job->store();
+            if ($isKafka){
+                $kafkaJobs[] = $job;
+            } else {
+                $jobs[] = $job;
+            }
+        }
+        if (!empty($kafkaJobs)) {
+            OCWebHookQueue::instance(OCWebHookQueue::HANDLER_IMMEDIATE)->pushJobs($kafkaJobs)->execute();
+        }
+        if (!empty($jobs)) {
+            OCWebHookQueue::instance($queueHandlerIdentifier)->pushJobs($jobs)->execute();
+        }
+
     }
 }
