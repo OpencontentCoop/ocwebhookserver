@@ -91,6 +91,8 @@ class WorkflowWebHookType extends eZWorkflowEventType
                         }
                     }
 
+                    self::enrichRelationContentUrls($payload, $payload['metadata']['baseUrl']);
+
                     $triggerInstance = OCWebHookTriggerRegistry::registeredTrigger(PostPublishWebHookTrigger::IDENTIFIER);
                     $queueHandler = $triggerInstance instanceof OCWebHookTriggerQueueAwareInterface
                         ? $triggerInstance->getQueueHandler()
@@ -133,6 +135,66 @@ class WorkflowWebHookType extends eZWorkflowEventType
             'login' => $user->attribute('login'),
             'name'  => (string)$name,
         ];
+    }
+
+    /**
+     * Inject content_url into relation items that have a mainNodeId.
+     *
+     * Iterates all data languages and all attributes, finds relation item lists
+     * (array of arrays each having a mainNodeId key), fetches the node's URL
+     * alias, and sets content_url = baseUrl + '/' + urlAlias on each item.
+     * Results are cached by nodeId to avoid duplicate DB queries.
+     *
+     * @param array  &$payload  Raw ocopendata payload (modified in place)
+     * @param string  $baseUrl  Site base URL (e.g. https://www.comune.example.it)
+     */
+    private static function enrichRelationContentUrls(array &$payload, $baseUrl)
+    {
+        if (empty($payload['data']) || !is_array($payload['data'])) {
+            return;
+        }
+        $nodeUrlCache = [];
+        foreach ($payload['data'] as $lang => &$attributes) {
+            if (!is_array($attributes)) {
+                continue;
+            }
+            foreach ($attributes as $attrName => &$attrValue) {
+                // A relation item list is stored as {content: [{id, mainNodeId, ...}, ...]}
+                $items = null;
+                if (is_array($attrValue) && array_key_exists('content', $attrValue)
+                    && is_array($attrValue['content'])
+                    && isset($attrValue['content'][0])
+                    && is_array($attrValue['content'][0])
+                ) {
+                    $items = &$attrValue['content'];
+                }
+                if ($items === null) {
+                    continue;
+                }
+                foreach ($items as &$item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
+                            : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
+                    if (!$nodeId) {
+                        continue;
+                    }
+                    if (!array_key_exists($nodeId, $nodeUrlCache)) {
+                        $node = eZContentObjectTreeNode::fetch($nodeId);
+                        $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
+                            ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
+                            : null;
+                    }
+                    if ($nodeUrlCache[$nodeId] !== null) {
+                        $item['content_url'] = $nodeUrlCache[$nodeId];
+                    }
+                }
+                unset($item);
+            }
+            unset($attrValue);
+        }
+        unset($attributes);
     }
 }
 

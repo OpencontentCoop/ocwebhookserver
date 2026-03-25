@@ -252,7 +252,8 @@ $dropPayload = [
                  'mainNodeId' => '210', 'name' => 'Relazione annuale.pdf',
                  'class' => 'file',              // must be dropped
                  'languages' => ['it-IT'],        // must be dropped
-                 'link' => 'read/210'],           // must be dropped
+                 'link' => 'read/210',            // must be dropped
+                 'content_url' => 'https://www.comune.example.it/allegati/relazione-annuale'], // must pass through
                 ['id' => 2, 'remoteId' => 'file-def-456', 'classIdentifier' => 'file',
                  'mainNodeId' => '211', 'name' => 'Bilancio.pdf',
                  'class' => 'file', 'languages' => ['it-IT'], 'link' => 'read/211'],
@@ -288,6 +289,8 @@ assert_false(isset($data4['attachments'][0]['class']),          '"class" elimina
 assert_false(isset($data4['attachments'][0]['languages']),      '"languages" eliminato (ridondante)');
 assert_false(isset($data4['attachments'][0]['link']),           '"link" eliminato (path interno eZ)');
 assert_eq($data4['attachments'][1]['remote_id'], 'file-def-456', 'Secondo item: remote_id normalizzato');
+assert_eq($data4['attachments'][0]['content_url'], 'https://www.comune.example.it/allegati/relazione-annuale',
+    'content_url in relation item preservato (pass-through)');
 
 assert_eq($data4['topics'][0]['remote_id'],       'topic-xyz', 'snake_case remote_id pass-through');
 assert_eq($data4['topics'][0]['class_identifier'], 'tag',      'snake_case class_identifier pass-through');
