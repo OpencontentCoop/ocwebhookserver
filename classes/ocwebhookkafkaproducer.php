@@ -50,6 +50,17 @@ class OCWebHookKafkaProducer
         $conf->set('retries', '3');
         $conf->set('retry.backoff.ms', '200');
 
+        $securityProtocol = $ini->variable('KafkaSettings', 'SecurityProtocol');
+        if (!empty($securityProtocol) && $securityProtocol !== 'PLAINTEXT') {
+            $conf->set('security.protocol', strtolower($securityProtocol));
+        }
+        $saslMechanism = $ini->variable('KafkaSettings', 'SaslMechanism');
+        if (!empty($saslMechanism)) {
+            $conf->set('sasl.mechanism', $saslMechanism);
+            $conf->set('sasl.username', $ini->variable('KafkaSettings', 'SaslUsername'));
+            $conf->set('sasl.password', $ini->variable('KafkaSettings', 'SaslPassword'));
+        }
+
         // Delivery report callback: senza questo, gli errori di consegna vengono
         // silenziosamente scartati e flush() ritorna RD_KAFKA_RESP_ERR_NO_ERROR
         // anche quando i messaggi non sono stati consegnati al broker.
