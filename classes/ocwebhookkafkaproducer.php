@@ -19,6 +19,9 @@ class OCWebHookKafkaProducer
 
     private $ceTypeMap;
 
+    /** @var string|null Errore riportato dal delivery report callback, null se nessun errore */
+    private $deliveryError;
+
     /**
      * @param string $brokers Comma-separated list of brokers (e.g. "broker1:9092,broker2:9092")
      * @param string $topic   Kafka topic name
@@ -46,6 +49,18 @@ class OCWebHookKafkaProducer
         $conf->set('acks', 'all');
         $conf->set('retries', '3');
         $conf->set('retry.backoff.ms', '200');
+
+        // Delivery report callback: senza questo, gli errori di consegna vengono
+        // silenziosamente scartati e flush() ritorna RD_KAFKA_RESP_ERR_NO_ERROR
+        // anche quando i messaggi non sono stati consegnati al broker.
+        $conf->setDrMsgCb(function ($kafka, $message) {
+            if ($message->err !== RD_KAFKA_RESP_ERR_NO_ERROR) {
+                $errMsg = rd_kafka_err2str($message->err) .
+                    ' (topic: ' . $message->topic_name . ', partition: ' . $message->partition . ')';
+                eZDebug::writeError('Kafka delivery error: ' . $errMsg, __CLASS__);
+                $this->deliveryError = $errMsg;
+            }
+        });
 
         $this->producer = new RdKafka\Producer($conf);
     }
@@ -145,6 +160,8 @@ class OCWebHookKafkaProducer
         }
 
         try {
+            $this->deliveryError = null;
+
             $topic = $this->producer->newTopic($this->topic);
             // La partition key è sempre il TenantId: tutti i messaggi dello stesso
             // tenant finiscono sulla stessa partizione, garantendo ordinamento temporale.
@@ -165,6 +182,10 @@ class OCWebHookKafkaProducer
                     'Kafka flush timeout or error (code ' . $result . ') for trigger ' . $triggerIdentifier,
                     __CLASS__
                 );
+                return false;
+            }
+
+            if ($this->deliveryError !== null) {
                 return false;
             }
 
