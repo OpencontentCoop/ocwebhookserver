@@ -45,8 +45,13 @@ class OCWebHookKafkaProducer
 
         $conf = new RdKafka\Conf();
         $conf->set('metadata.broker.list', $brokers);
-        // acks=all: MSK non darà ack finché min.insync.replicas non hanno scritto il messaggio
-        $conf->set('acks', 'all');
+        $acks = $ini->variable('KafkaSettings', 'Acks');
+        $conf->set('acks', !empty($acks) ? $acks : 'all');
+
+        $messageTimeoutMs = $ini->variable('KafkaSettings', 'MessageTimeoutMs');
+        if (!empty($messageTimeoutMs)) {
+            $conf->set('message.timeout.ms', (string)(int)$messageTimeoutMs);
+        }
         $conf->set('retries', '3');
         $conf->set('retry.backoff.ms', '200');
 

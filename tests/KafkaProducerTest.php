@@ -447,6 +447,43 @@ assert_true(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 9: produce() returns false when delivery callback reports an error
+//
+// Simula il caso reale: broker raggiungibile, flush() ritorna 0 (coda svuotata),
+// ma la consegna è fallita e il delivery callback ha segnalato l'errore.
+// Senza il callback registrato, produce() avrebbe restituito true (silent failure).
+//
+// Meccanismo: MessageTimeoutMs=1 fa scadere il messaggio nella coda locale rdkafka
+// prima che il broker possa ackarlo → rdkafka chiama il callback con
+// ERR__MSG_TIMED_OUT → flush() ritorna 0 (coda vuota) → produce() deve false.
+// ─────────────────────────────────────────────────────────────────────────────
+
+set_ini($BROKER, $TOPIC, 2000, [
+    'KafkaSettings' => [
+        'FlushTimeoutMs'   => '2000',
+        'TenantId'         => 'test-tenant-uuid-1234',
+        'ProductSlug'      => 'website',
+        'AppName'          => 'website-comuni',
+        'AppVersion'       => '1.5.0',
+        'MessageTimeoutMs' => '1',   // 1ms: scade prima che il broker possa ackare
+    ],
+]);
+eZDebug::reset();
+
+$producer9 = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$result9   = $producer9->produce('post_publish', ['entity' => ['meta' => ['type_id' => 'article', 'version' => 1], 'data' => []]]);
+
+assert_false($result9, 'produce() returns false when delivery callback reports error (ERR__MSG_TIMED_OUT)');
+assert_true(
+    !empty(eZDebug::$errors),
+    'eZDebug::writeError() called with delivery error from callback'
+);
+assert_true(
+    !empty(eZDebug::$errors) && strpos(eZDebug::$errors[0]['message'], 'Kafka delivery error') !== false,
+    'Error message contains "Kafka delivery error" (from dr_msg_cb, not flush timeout)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
