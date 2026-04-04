@@ -64,7 +64,10 @@ function get_end_offset(string $broker, string $topic, int $retries = 5): int
             if ($i < $retries - 1) {
                 usleep(500000); // 500ms — attende che il topic sia pronto
             } else {
-                throw $e;
+                // Topic non ancora esistente (Redpanda non crea su queryWatermarkOffsets,
+                // solo su produce). Offset 0 = inizio topic, corretto se non ci sono
+                // messaggi precedenti (ogni job CI parte con Redpanda fresco).
+                return 0;
             }
         }
     }
