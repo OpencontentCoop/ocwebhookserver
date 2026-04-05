@@ -60,14 +60,26 @@ function assert_eq($a, $b, string $t, string $r = ''): void
 $BROKER = getenv('KAFKA_BROKER') ?: 'redpanda:9092';
 $TOPIC  = getenv('KAFKA_TOPIC')  ?: 'cms';
 
-function get_end_offset(string $broker, string $topic): int
+function get_end_offset(string $broker, string $topic, int $retries = 5): int
 {
     $conf = new RdKafka\Conf();
     $conf->set('metadata.broker.list', $broker);
     $rk  = new RdKafka\Consumer($conf);
     $low = $high = 0;
-    $rk->queryWatermarkOffsets($topic, 0, $low, $high, 2000);
-    return $high;
+
+    for ($i = 0; $i < $retries; $i++) {
+        try {
+            $rk->queryWatermarkOffsets($topic, 0, $low, $high, 2000);
+            return $high;
+        } catch (\RdKafka\Exception $e) {
+            if ($i < $retries - 1) {
+                usleep(500000);
+            } else {
+                return 0;
+            }
+        }
+    }
+    return 0;
 }
 
 function consume_message(string $broker, string $topic, int $startOffset, int $timeoutMs = 8000): ?RdKafka\Message
