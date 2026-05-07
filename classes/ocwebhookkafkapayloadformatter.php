@@ -36,17 +36,26 @@ class OCWebHookKafkaPayloadFormatter
     /** @var string|null Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id) */
     private $tenantId;
 
+    /** @var callable|null function(int $objectId): ?string — returns image URL for a relation item */
+    private $imageUrlResolver;
+
+    /** @var string[] Class identifiers treated as image objects; receive image_url when resolver is set */
+    private static $imageClassIdentifiers = ['image', 'image_with_related'];
+
     /**
-     * @param string      $siteaccess  eZ Publish siteaccess name (e.g. "frontend")
-     * @param string|null $instanceId  Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
-     *                                 Defaults to $siteaccess when null.
-     * @param string|null $tenantId    Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
+     * @param string        $siteaccess        eZ Publish siteaccess name (e.g. "frontend")
+     * @param string|null   $instanceId        Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
+     *                                         Defaults to $siteaccess when null.
+     * @param string|null   $tenantId          Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
+     * @param callable|null $imageUrlResolver  Optional: function(int $objectId): ?string — called for
+     *                                         image-type relation items to populate image_url.
      */
-    public function __construct($siteaccess, $instanceId = null, $tenantId = null)
+    public function __construct($siteaccess, $instanceId = null, $tenantId = null, callable $imageUrlResolver = null)
     {
-        $this->siteaccess = $siteaccess;
-        $this->instanceId = $instanceId !== null ? $instanceId : $siteaccess;
-        $this->tenantId   = $tenantId;
+        $this->siteaccess       = $siteaccess;
+        $this->instanceId       = $instanceId !== null ? $instanceId : $siteaccess;
+        $this->tenantId         = $tenantId;
+        $this->imageUrlResolver = $imageUrlResolver;
     }
 
     /**
@@ -110,7 +119,7 @@ class OCWebHookKafkaPayloadFormatter
                     }
                     // Normalize camelCase keys in relation item lists
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
-                        $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
+                        $content = array_map([$this, 'normalizeRelationItem'], $content);
                     }
                     // Resolve multi-language maps to the current language (e.g. relation item "name" fields)
                     $content = self::resolveForLanguage($content, $lang);
@@ -223,6 +232,7 @@ class OCWebHookKafkaPayloadFormatter
      * Normalize a relation item coming from ocopendata:
      * - rename camelCase keys to snake_case
      * - drop fields that are redundant or internal to eZ Publish
+     * - add image_url for image-type items when an imageUrlResolver is set
      *
      * Kept fields: id, remote_id, class_identifier, name, main_node_id
      * Dropped:
@@ -233,7 +243,7 @@ class OCWebHookKafkaPayloadFormatter
      * @param array $item
      * @return array
      */
-    private static function normalizeRelationItem(array $item)
+    private function normalizeRelationItem(array $item)
     {
         static $renames = [
             'remoteId'        => 'remote_id',
@@ -247,6 +257,16 @@ class OCWebHookKafkaPayloadFormatter
                 continue;
             }
             $result[isset($renames[$key]) ? $renames[$key] : $key] = $value;
+        }
+        if ($this->imageUrlResolver !== null
+            && isset($result['class_identifier'])
+            && in_array($result['class_identifier'], self::$imageClassIdentifiers, true)
+            && isset($result['id'])
+        ) {
+            $url = call_user_func($this->imageUrlResolver, $result['id']);
+            if ($url !== null) {
+                $result['image_url'] = $url;
+            }
         }
         return $result;
     }

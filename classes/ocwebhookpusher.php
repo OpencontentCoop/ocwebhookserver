@@ -79,7 +79,7 @@ class OCWebHookPusher
                         // instanceId per entity.meta.id: usa EZ_INSTANCE (es. "opencity"),
                         // non il TenantId UUID — i due concetti sono separati.
                         $instanceId = OpenPABase::getCurrentSiteaccessIdentifier();
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId);
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId, [$this, 'resolveImageUrl']);
                         $payload = $formatter->format($payload);
                     }
 
@@ -187,5 +187,31 @@ class OCWebHookPusher
         $payloadJson = json_encode($payload);
 
         return hash_hmac('sha256', $payloadJson, $secret);
+    }
+
+    /**
+     * Returns the absolute URL of the first ezimage attribute found on the given content object.
+     * Used as the imageUrlResolver for OCWebHookKafkaPayloadFormatter.
+     *
+     * @param int $objectId
+     * @return string|null
+     */
+    public function resolveImageUrl($objectId)
+    {
+        $object = eZContentObject::fetch((int)$objectId);
+        if (!$object instanceof eZContentObject) {
+            return null;
+        }
+        foreach ($object->dataMap() as $attr) {
+            if ($attr->attribute('data_type_string') === 'ezimage' && $attr->hasContent()) {
+                $original = $attr->content()->attribute('original');
+                if (!empty($original['full_path'])) {
+                    $url = $original['full_path'];
+                    eZURI::transformURI($url, true);
+                    return $url;
+                }
+            }
+        }
+        return null;
     }
 }
