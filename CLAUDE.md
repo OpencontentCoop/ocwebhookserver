@@ -93,7 +93,7 @@ I messaggi Kafka seguono il formato CloudEvents 1.0 con header:
 }
 ```
 
-**Message key**: `entity.meta.id` (es. `bugliano:228`) — `{TenantId}:{objectId}`, garantisce ordinamento per oggetto all'interno del tenant.
+**Message key**: `TenantId` (es. `bugliano`) — tutti i messaggi dello stesso tenant finiscono sulla stessa partizione, garantendo ordinamento temporale per tenant.
 
 **Formato `ce_type`**: `it.opencity.{productSlug}.{type_id}.{created|updated|deleted}`
 - `type_id` = `entity.meta.type_id` dal payload (es. `article`, `event`, `document`)
@@ -167,6 +167,8 @@ EZINI_webhook__KafkaSettings__FlushTimeoutMs: '2000'
 EZINI_webhook__KafkaSettings__TenantId: 'opencity'
 ```
 
+**`TenantId` è obbligatorio**: se non configurato, `OCWebHookKafkaProducer::produce()` ritorna `false` in silenzio — il job finisce in `STATUS_RETRYING` con `error: "Kafka produce failed"` senza indicare la causa. Verificare sempre che sia impostato prima di fare debug su messaggi mancanti.
+
 **Attenzione**: `$ini->variable('KafkaSettings', 'Brokers')` restituisce l'array iniettato correttamente. `$ini->group('KafkaSettings')` NON restituisce i valori iniettati via env var — usare sempre `variable()`.
 
 **Non creare mai file `webhook.ini.append.php` statici** per configurazioni che variano per ambiente.
@@ -180,10 +182,64 @@ Il repo CMS include `docker-compose.events.yml` per avviare Redpanda localmente:
 ```bash
 # Avvia CMS + Redpanda
 docker compose -f docker-compose.yml -f docker-compose.events.yml up -d
+```
 
+### Sviluppo locale su questa estensione
+
+Il container `app` usa il codice baked nell'immagine Docker. Per vedere le modifiche locali in tempo reale aggiungere un volume mount in `docker-compose.override.yml` **nel repo CMS** (non committare):
+
+```yaml
+services:
+  app:
+    volumes:
+      - ../ocwebhookserver:/var/www/html/extension/ocwebhookserver
+```
+
+Poi riavviare il container:
+
+```bash
+docker compose up -d app
+```
+
+### Configurazione minima per il test Kafka locale
+
+```yaml
+# docker-compose.override.yml nel repo CMS
+services:
+  app:
+    environment:
+      EZINI_webhook__KafkaSettings__Enabled: 'enabled'
+      EZINI_webhook__KafkaSettings__Brokers__0: 'redpanda:9092'
+      EZINI_webhook__KafkaSettings__Topic: 'cms'
+      EZINI_webhook__KafkaSettings__FlushTimeoutMs: '2000'
+      EZINI_webhook__KafkaSettings__TenantId: 'opencity-local'  # obbligatorio
+      EZINI_webhook__TriggersSettings__TriggerList__0: PostPublishWebHookTrigger
+      EZINI_webhook__TriggersSettings__TriggerList__1: DeleteWebHookTrigger
+```
+
+### Diagnosi job Kafka falliti
+
+Se i messaggi non arrivano in Redpanda, verificare lo stato dei job in DB:
+
+```bash
+docker exec cms-postgres-1 psql -U openpa -d opencity \
+  -c "SELECT id, execution_status, response_headers FROM ocwebhook_job ORDER BY id DESC LIMIT 5;"
+```
+
+| `execution_status` | Significato |
+|--------------------|-------------|
+| 0 | PENDING |
+| 1 | RUNNING |
+| 2 | DONE |
+| 3 | FAILED |
+| 4 | RETRYING |
+
+`response_headers` contiene l'errore: `{"error": "Kafka produce failed"}` può indicare TenantId non configurato, broker non raggiungibile, o flush timeout.
+
+```bash
 # Monitora messaggi Kafka
 OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
-  -X brokers=redpanda:9092 --offset start --num 10 2>&1); echo "$OUT"
+  --brokers redpanda:9092 --offset start --num 10 2>&1); echo "$OUT"
 
 # UI grafica
 # https://redpanda-opencity.localtest.me

@@ -39,7 +39,7 @@ class OCWebHookKafkaPayloadFormatter
     /** @var callable|null function(int $objectId): ?string — returns image URL for a relation item */
     private $imageUrlResolver;
 
-    /** @var string[] Class identifiers treated as image objects; receive image_url when resolver is set */
+    /** @var string[] Class identifiers treated as image objects; receive url when resolver is set */
     private static $imageClassIdentifiers = ['image', 'image_with_related'];
 
     /**
@@ -48,7 +48,7 @@ class OCWebHookKafkaPayloadFormatter
      *                                         Defaults to $siteaccess when null.
      * @param string|null   $tenantId          Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
      * @param callable|null $imageUrlResolver  Optional: function(int $objectId): ?string — called for
-     *                                         image-type relation items to populate image_url.
+     *                                         image-type relation items to populate url.
      */
     public function __construct($siteaccess, $instanceId = null, $tenantId = null, callable $imageUrlResolver = null)
     {
@@ -232,7 +232,7 @@ class OCWebHookKafkaPayloadFormatter
      * Normalize a relation item coming from ocopendata:
      * - rename camelCase keys to snake_case
      * - drop fields that are redundant or internal to eZ Publish
-     * - add image_url for image-type items when an imageUrlResolver is set
+     * - add url for image-type items when an imageUrlResolver is set
      *
      * Kept fields: id, remote_id, class_identifier, name, main_node_id
      * Dropped:
@@ -265,7 +265,7 @@ class OCWebHookKafkaPayloadFormatter
         ) {
             $url = call_user_func($this->imageUrlResolver, $result['id']);
             if ($url !== null) {
-                $result['image_url'] = $url;
+                $result['url'] = $url;
             }
         }
         return $result;

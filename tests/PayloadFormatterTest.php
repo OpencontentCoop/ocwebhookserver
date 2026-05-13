@@ -538,7 +538,7 @@ assert_eq(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 14: image_url injected in relation items of image type via resolver
+// TEST 14: url injected in relation items of image type via resolver
 // ─────────────────────────────────────────────────────────────────────────────
 
 $imageUrls = [
@@ -555,16 +555,16 @@ $payloadWithImages = [
     'metadata' => ['id' => '300', 'classIdentifier' => 'public_person', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'Mario Rossi']],
     'data' => [
         'it-IT' => [
-            // image-type item — should get image_url
+            // image-type item — should get url
             'photo' => ['content' => [
                 ['id' => 10, 'remoteId' => 'img-abc', 'classIdentifier' => 'image', 'mainNodeId' => '500', 'name' => 'Foto sindaco'],
             ], 'type' => 'ezobjectrelation'],
-            // image_with_related — also an image type, should get image_url
+            // image_with_related — also an image type, should get url
             'gallery' => ['content' => [
                 ['id' => 11, 'remoteId' => 'img-def', 'classIdentifier' => 'image_with_related', 'mainNodeId' => '501', 'name' => 'Logo'],
                 ['id' => 12, 'remoteId' => 'img-ghi', 'classIdentifier' => 'image_with_related', 'mainNodeId' => '502', 'name' => 'No-URL image'],
             ], 'type' => 'ezobjectrelationlist'],
-            // non-image item — must NOT get image_url
+            // non-image item — must NOT get url
             'related_docs' => ['content' => [
                 ['id' => 20, 'remoteId' => 'doc-abc', 'classIdentifier' => 'document', 'mainNodeId' => '600', 'name' => 'Delibera'],
             ], 'type' => 'ezobjectrelationlist'],
@@ -577,22 +577,22 @@ $resultImg    = $formatterImg->format($payloadWithImages);
 $dataImg      = $resultImg['entity']['data']['it-IT'];
 
 assert_eq(
-    $dataImg['photo'][0]['image_url'],
+    $dataImg['photo'][0]['url'],
     'https://www.comune.example.it/var/storage/images/foto-sindaco.jpg',
-    'image_url added to image-type relation item'
+    'url added to image-type relation item'
 );
 assert_eq(
-    $dataImg['gallery'][0]['image_url'],
+    $dataImg['gallery'][0]['url'],
     'https://www.comune.example.it/var/storage/images/logo.png',
-    'image_url added to image_with_related relation item'
+    'url added to image_with_related relation item'
 );
 assert_false(
-    isset($dataImg['gallery'][1]['image_url']),
-    'image_url not added when resolver returns null'
+    isset($dataImg['gallery'][1]['url']),
+    'url not added when resolver returns null'
 );
 assert_false(
-    isset($dataImg['related_docs'][0]['image_url']),
-    'image_url not added for non-image-type relation item (document)'
+    isset($dataImg['related_docs'][0]['url']),
+    'url not added for non-image-type relation item (document)'
 );
 
 // Resolver must not be called for non-image types
@@ -607,8 +607,8 @@ $resultNoResolver    = $formatterNoResolver->format($payloadWithImages);
 $dataNR              = $resultNoResolver['entity']['data']['it-IT'];
 
 assert_false(
-    isset($dataNR['photo'][0]['image_url']),
-    'Without resolver: image_url not present in image-type item'
+    isset($dataNR['photo'][0]['url']),
+    'Without resolver: url not present in image-type item'
 );
 assert_eq(
     $dataNR['photo'][0]['class_identifier'],
