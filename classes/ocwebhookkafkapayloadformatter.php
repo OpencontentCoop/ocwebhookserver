@@ -108,12 +108,16 @@ class OCWebHookKafkaPayloadFormatter
                     if ($content === null && is_array($attrValue) && array_key_exists('content', $attrValue)) {
                         $content = [];
                     }
-                    // Normalize camelCase keys in relation item lists
+                    // Normalize item lists: route to the correct normalizer by item structure
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $instanceId = $this->instanceId;
+                        $siteUrl    = $meta['site_url'];
                         $content = array_map(
-                            function ($item) use ($instanceId) {
-                                return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId);
+                            function ($item) use ($instanceId, $siteUrl) {
+                                if (isset($item['classIdentifier']) || isset($item['class_identifier'])) {
+                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId);
+                                }
+                                return OCWebHookKafkaPayloadFormatter::normalizeTaxonomyItem($item, $siteUrl);
                             },
                             $content
                         );
@@ -198,6 +202,56 @@ class OCWebHookKafkaPayloadFormatter
         foreach ($value as $k => $v) {
             $result[$k] = self::resolveForLanguage($v, $lang);
         }
+        return $result;
+    }
+
+    /**
+     * Normalize a vocabulary/taxonomy item (eztags, enum vocabulary types).
+     * Detection: item has no 'classIdentifier'/'class_identifier' and no 'filename'/'mime_type'.
+     *
+     * Output: {id, title, priority, [code,] taxonomy: {id, api_url}}
+     *
+     * taxonomy is built from:
+     *   1. $item['taxonomy']      — already present (pass-through)
+     *   2. $item['vocabulary_id'] — e.g. "vocabulary_licenses" → constructs api_url from $siteUrl
+     *
+     * @param array       $item
+     * @param string|null $siteUrl  e.g. "https://www.comune.example.it"
+     * @return array
+     */
+    private static function normalizeTaxonomyItem(array $item, $siteUrl = null)
+    {
+        $result = [
+            'id'    => isset($item['id']) ? $item['id'] : null,
+            'title' => isset($item['name']) ? $item['name'] : null,
+        ];
+
+        if (isset($item['priority'])) {
+            $result['priority'] = (int)$item['priority'];
+        }
+
+        static $skip = ['id' => true, 'name' => true, 'priority' => true,
+                        'taxonomy' => true, 'vocabulary_id' => true,
+                        'languages' => true, 'link' => true, 'class' => true];
+        foreach ($item as $key => $value) {
+            if (!isset($skip[$key])) {
+                $result[$key] = $value;
+            }
+        }
+
+        if (isset($item['taxonomy'])) {
+            $result['taxonomy'] = $item['taxonomy'];
+        } elseif (isset($item['vocabulary_id']) && $siteUrl !== null) {
+            $vocId   = $item['vocabulary_id'];
+            $vocSlug = str_replace('_', '-', str_replace('vocabulary_', '', $vocId));
+            $result['taxonomy'] = [
+                'id'      => $vocId,
+                'api_url' => rtrim($siteUrl, '/') . '/api/openapi/vocabularies/' . $vocSlug,
+            ];
+        } else {
+            $result['taxonomy'] = null;
+        }
+
         return $result;
     }
 

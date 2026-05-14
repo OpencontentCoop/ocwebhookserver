@@ -550,6 +550,73 @@ assert_eq(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 14: normalizeTaxonomyItem — vocabulary items
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadTaxonomy = [
+    'metadata' => [
+        'id' => '300', 'classIdentifier' => 'document', 'languages' => ['it-IT'],
+        'baseUrl' => 'https://www.comune.example.it',
+    ],
+    'data' => [
+        'it-IT' => [
+            // taxonomy item con vocabulary_id (ocopendata lo fornisce)
+            'licenses' => ['content' => [
+                ['id' => 'open_license', 'name' => ['it-IT' => 'Licenza aperta'], 'priority' => 1,
+                 'vocabulary_id' => 'vocabulary_licenses'],
+            ], 'type' => 'eztags'],
+            // taxonomy item con taxonomy già presente (pass-through)
+            'formats' => ['content' => [
+                ['id' => 'pdf', 'name' => ['it-IT' => 'PDF'], 'priority' => 1,
+                 'taxonomy' => ['id' => 'vocabulary_formats',
+                                'api_url' => 'https://www.comune.example.it/api/openapi/vocabularies/formats']],
+            ], 'type' => 'eztags'],
+            // taxonomy item con code extra (es. spatial_coverage)
+            'has_spatial_coverage' => ['content' => [
+                ['id' => '069001', 'code' => '069001', 'name' => ['it-IT' => 'Altino'], 'priority' => 1,
+                 'vocabulary_id' => 'vocabulary_spatial_coverage'],
+            ], 'type' => 'eztags'],
+        ],
+    ],
+];
+
+$fmTax   = new OCWebHookKafkaPayloadFormatter('frontend', 'opencity');
+$resTax  = $fmTax->format($payloadTaxonomy);
+$dataTax = $resTax['entity']['data']['it-IT'];
+
+// licenses: vocabulary_id present → taxonomy constructed
+$lic = $dataTax['licenses'][0];
+assert_eq($lic['id'],    'open_license',  'taxonomy item: id preserved');
+assert_eq($lic['title'], 'Licenza aperta', 'taxonomy item: name→title resolved');
+assert_eq((int)$lic['priority'], 1,       'taxonomy item: priority');
+assert_eq($lic['taxonomy']['id'], 'vocabulary_licenses', 'taxonomy.id from vocabulary_id');
+assert_eq(
+    $lic['taxonomy']['api_url'],
+    'https://www.comune.example.it/api/openapi/vocabularies/licenses',
+    'taxonomy.api_url derived from site_url + vocabulary_id'
+);
+assert_false(isset($lic['name']),          'name removed from taxonomy item');
+assert_false(isset($lic['vocabulary_id']), 'vocabulary_id removed after building taxonomy');
+
+// formats: taxonomy already present → pass-through unchanged
+$fmt = $dataTax['formats'][0];
+assert_eq($fmt['taxonomy']['id'],      'vocabulary_formats', 'taxonomy pass-through: id');
+assert_eq($fmt['taxonomy']['api_url'], 'https://www.comune.example.it/api/openapi/vocabularies/formats',
+    'taxonomy pass-through: api_url');
+
+// has_spatial_coverage: extra "code" field preserved
+$spa = $dataTax['has_spatial_coverage'][0];
+assert_eq($spa['id'],   '069001',  'spatial_coverage: id');
+assert_eq($spa['code'], '069001',  'spatial_coverage: code extra field preserved');
+assert_eq($spa['title'], 'Altino', 'spatial_coverage: title');
+assert_eq($spa['taxonomy']['id'], 'vocabulary_spatial_coverage', 'spatial_coverage: taxonomy.id');
+assert_eq(
+    $spa['taxonomy']['api_url'],
+    'https://www.comune.example.it/api/openapi/vocabularies/spatial-coverage',
+    'spatial_coverage: taxonomy.api_url (underscore→hyphen in URL)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
