@@ -617,6 +617,38 @@ assert_eq(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 15: entity.meta.tree_placement
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadTP = [
+    'metadata' => [
+        'id'                 => '500',
+        'languages'          => ['it-IT'],
+        'name'               => ['it-IT' => 'Test'],
+        'mainParentRemoteId' => 'trasparenza',
+        'parentRemoteIds'    => ['trasparenza', 'servizi'],
+    ],
+    'data' => [],
+];
+$fmTP  = new OCWebHookKafkaPayloadFormatter('frontend', 'opencity');
+$resTP = $fmTP->format($payloadTP);
+$metaTP = $resTP['entity']['meta'];
+
+assert_eq(
+    $metaTP['tree_placement'],
+    ['main_parent_remote_id' => 'trasparenza', 'parent_remote_ids' => ['trasparenza', 'servizi']],
+    'tree_placement built from mainParentRemoteId + parentRemoteIds'
+);
+
+// null when mainParentRemoteId absent
+$payloadNoTP = [
+    'metadata' => ['id' => '501', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X']],
+    'data' => [],
+];
+$resNoTP = $fmTP->format($payloadNoTP);
+assert_null($resNoTP['entity']['meta']['tree_placement'], 'tree_placement null when mainParentRemoteId absent');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 

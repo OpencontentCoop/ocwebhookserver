@@ -85,8 +85,13 @@ class OCWebHookKafkaPayloadFormatter
             'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
             'content_url'  => isset($metadata['contentUrl'])        ? $metadata['contentUrl']        : null,
             'api_url'      => isset($metadata['apiUrl'])            ? $metadata['apiUrl']            : null,
-            'created_by'   => isset($metadata['createdBy'])        ? $metadata['createdBy']         : null,
-            'modified_by'  => isset($metadata['modifiedBy'])       ? $metadata['modifiedBy']        : null,
+            'created_by'     => isset($metadata['createdBy'])          ? $metadata['createdBy']           : null,
+            'modified_by'    => isset($metadata['modifiedBy'])         ? $metadata['modifiedBy']          : null,
+            'tree_placement' => isset($metadata['mainParentRemoteId']) ? [
+                'main_parent_remote_id' => $metadata['mainParentRemoteId'],
+                'parent_remote_ids'     => isset($metadata['parentRemoteIds'])
+                    ? array_values((array)$metadata['parentRemoteIds']) : [],
+            ] : null,
             'published_at' => isset($metadata['published']) && $metadata['published'] !== null
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
