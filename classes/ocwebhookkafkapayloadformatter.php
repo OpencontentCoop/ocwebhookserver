@@ -110,7 +110,13 @@ class OCWebHookKafkaPayloadFormatter
                     }
                     // Normalize camelCase keys in relation item lists
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
-                        $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
+                        $instanceId = $this->instanceId;
+                        $content = array_map(
+                            function ($item) use ($instanceId) {
+                                return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId);
+                            },
+                            $content
+                        );
                     }
                     // Resolve multi-language maps to the current language (e.g. relation item "name" fields)
                     $content = self::resolveForLanguage($content, $lang);
@@ -220,34 +226,45 @@ class OCWebHookKafkaPayloadFormatter
     }
 
     /**
-     * Normalize a relation item coming from ocopendata:
-     * - rename camelCase keys to snake_case
-     * - drop fields that are redundant or internal to eZ Publish
+     * Normalize a relation item coming from ocopendata.
      *
-     * Kept fields: id, remote_id, class_identifier, name, main_node_id
-     * Dropped:
-     *   - "class"     exact duplicate of class_identifier
-     *   - "languages" redundant once "name" is resolved to a single language
-     *   - "link"      internal eZ path like "read/121", not useful for consumers
+     * Output: {type_id, id: "instanceId:objectId", object_id, remote_id, title, [api_url, priority, ...]}
+     * Dropped: class, classIdentifier, class_identifier, languages, link, mainNodeId, main_node_id, name
      *
-     * @param array $item
+     * @param array  $item
+     * @param string $instanceId  e.g. "bugliano" — prefixed to object id
      * @return array
      */
-    private static function normalizeRelationItem(array $item)
+    private static function normalizeRelationItem(array $item, $instanceId = '')
     {
-        static $renames = [
-            'remoteId'        => 'remote_id',
-            'classIdentifier' => 'class_identifier',
-            'mainNodeId'      => 'main_node_id',
+        $classId  = isset($item['classIdentifier'])  ? $item['classIdentifier']
+                  : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
+        $rawId    = isset($item['id'])               ? $item['id']       : null;
+        $remoteId = isset($item['remoteId'])         ? $item['remoteId']
+                  : (isset($item['remote_id'])        ? $item['remote_id'] : null);
+        $title    = isset($item['name'])             ? $item['name']     : null;
+
+        $result = [
+            'type_id'   => $classId,
+            'id'        => $instanceId . ':' . $rawId,
+            'object_id' => $rawId !== null ? (string)$rawId : null,
+            'remote_id' => $remoteId,
+            'title'     => $title,
         ];
-        static $drop = ['class' => true, 'languages' => true, 'link' => true];
-        $result = [];
+
+        static $skip = [
+            'id' => true, 'name' => true,
+            'remoteId' => true, 'remote_id' => true,
+            'classIdentifier' => true, 'class_identifier' => true,
+            'mainNodeId' => true, 'main_node_id' => true,
+            'class' => true, 'languages' => true, 'link' => true,
+        ];
         foreach ($item as $key => $value) {
-            if (isset($drop[$key])) {
-                continue;
+            if (!isset($skip[$key])) {
+                $result[$key] = $value;
             }
-            $result[isset($renames[$key]) ? $renames[$key] : $key] = $value;
         }
+
         return $result;
     }
 }
