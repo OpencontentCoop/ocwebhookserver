@@ -275,6 +275,10 @@ if ($message !== null) {
         '0',
         'Header oc_retry_count = "0" for first delivery (no retries)'
     );
+    assert_false(
+        isset($headers['oc_is_custom']),
+        'Header oc_is_custom absent on standard instance (no IsOpenCityFork in openpa.ini)'
+    );
 
     // Verify ce_id is a valid UUID v4 format
     $uuid = $headers['ce_id'] ?? '';
@@ -502,6 +506,32 @@ assert_true(
     !empty(eZDebug::$errors) && strpos(eZDebug::$errors[0]['message'], 'Kafka delivery error') !== false,
     'Error message contains "Kafka delivery error" (from dr_msg_cb, not flush timeout)'
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 10: oc_is_custom header present when IsOpenCityFork=true in openpa.ini
+// ─────────────────────────────────────────────────────────────────────────────
+
+set_ini($BROKER, $TOPIC, $FLUSH_MS);
+eZINI::setTestData('openpa.ini', [
+    'CreditsSettings' => ['IsOpenCityFork' => 'true'],
+]);
+
+$startOffset10 = get_end_offset($BROKER, $TOPIC);
+$producer10    = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$sent10        = $producer10->produce('post_publish', [
+    'entity' => ['meta' => ['type_id' => 'article', 'version' => 1], 'data' => []],
+]);
+
+assert_true($sent10, 'Custom instance: produce() returns true');
+
+$message10 = consume_message($BROKER, $TOPIC, $startOffset10, 5000);
+if ($message10 !== null) {
+    $headers10 = (array)($message10->headers ?? []);
+    assert_true(
+        isset($headers10['oc_is_custom']) && $headers10['oc_is_custom'] === 'true',
+        'Custom instance: oc_is_custom=true when IsOpenCityFork=true in openpa.ini'
+    );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results

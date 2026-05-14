@@ -19,6 +19,8 @@ class OCWebHookKafkaProducer
 
     private $ceTypeMap;
 
+    private $isCustomInstance;
+
     /** @var string|null Errore riportato dal delivery report callback, null se nessun errore */
     private $deliveryError;
 
@@ -42,6 +44,9 @@ class OCWebHookKafkaProducer
         $this->ceTypeMap = $ini->hasGroup('KafkaCeTypeMap')
             ? $ini->group('KafkaCeTypeMap')
             : [];
+        $openpaIni = eZINI::instance('openpa.ini');
+        $this->isCustomInstance = $openpaIni->hasVariable('CreditsSettings', 'IsOpenCityFork')
+            && $openpaIni->variable('CreditsSettings', 'IsOpenCityFork') === 'true';
 
         $conf = new RdKafka\Conf();
         $conf->set('metadata.broker.list', $brokers);
@@ -142,7 +147,7 @@ class OCWebHookKafkaProducer
         $ceType   = 'it.opencity.' . $this->productSlug . '.' . $entityType . '.' . $operation;
         $ceSource = 'urn:opencity:' . $this->productSlug . ':' . $this->tenantId;
 
-        return [
+        $headers = [
             'ce_specversion'  => '1.0',
             'ce_id'           => self::generateUuid(),
             'ce_type'         => $ceType,
@@ -154,6 +159,10 @@ class OCWebHookKafkaProducer
             'oc_operation'    => $operation,
             'oc_retry_count'  => (string)(int)$retryCount,
         ];
+        if ($this->isCustomInstance) {
+            $headers['oc_is_custom'] = 'true';
+        }
+        return $headers;
     }
 
     /**
