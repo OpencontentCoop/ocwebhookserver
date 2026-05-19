@@ -649,6 +649,28 @@ $resNoTP = $fmTP->format($payloadNoTP);
 assert_null($resNoTP['entity']['meta']['tree_placement'], 'tree_placement null when mainParentRemoteId absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 16: entity.meta.is_public mapped from metadata.isPublic
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadPublic = [
+    'metadata' => ['id' => '600', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X'], 'isPublic' => true],
+    'data' => [],
+];
+$payloadPrivate = [
+    'metadata' => ['id' => '601', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X'], 'isPublic' => false],
+    'data' => [],
+];
+$payloadNoPublic = [
+    'metadata' => ['id' => '602', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X']],
+    'data' => [],
+];
+
+$fmPub = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+assert_eq($fmPub->format($payloadPublic)['entity']['meta']['is_public'],  true,  'is_public true when isPublic=true');
+assert_eq($fmPub->format($payloadPrivate)['entity']['meta']['is_public'], false, 'is_public false when isPublic=false');
+assert_null($fmPub->format($payloadNoPublic)['entity']['meta']['is_public'], 'is_public null when isPublic absent');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -21,6 +21,7 @@
  *   metadata.modifiedBy      → entity.meta.modified_by  ({id, login, name} of current-version author)
  *   metadata.published       → entity.meta.published_at (ISO 8601)
  *   metadata.modified        → entity.meta.updated_at   (ISO 8601)
+ *   metadata.isPublic        → entity.meta.is_public    (bool, null when absent)
  *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>  (ISO 8601 date strings normalised to UTC)
  */
 require_once dirname(__FILE__) . '/ocwebhookkafkafieldmap.php';
@@ -96,6 +97,7 @@ class OCWebHookKafkaPayloadFormatter
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['modified']))  : null,
+            'is_public'    => isset($metadata['isPublic']) ? (bool)$metadata['isPublic'] : null,
         ];
 
         // Flatten attribute values per language: extract the "content" field from each attribute.

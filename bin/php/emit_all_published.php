@@ -148,6 +148,11 @@ foreach ($rows as $i => $row) {
         $payload['metadata']['baseUrl']        = eZSys::serverURL();
         $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
+        $mainNode = $object->mainNode();
+        $payload['metadata']['isPublic'] = ($mainNode instanceof eZContentObjectTreeNode)
+            ? (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId())
+            : false;
+
         $classId = $object->attribute('class_identifier');
         $name    = $object->attribute('name');
 

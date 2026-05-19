@@ -41,6 +41,9 @@ class WorkflowWebHookType extends eZWorkflowEventType
                     if ($mainNode instanceof eZContentObjectTreeNode) {
                         $urlAlias = $mainNode->urlAlias();
                         $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
+                        $payload['metadata']['isPublic'] = (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
+                    } else {
+                        $payload['metadata']['isPublic'] = false;
                     }
 
                     $currentVersion = $object->currentVersion();
