@@ -1,73 +1,73 @@
-# Hybrid Visibility Events Implementation Plan
+# Piano A — Eventi di visibilità (architettura ibrida)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Per agentic worker:** sub-skill richiesta — usare superpowers:subagent-driven-development (consigliata) oppure superpowers:executing-plans per implementare questo piano task per task. Gli step usano la sintassi a checkbox (`- [ ]`) per il tracking.
 
-**Goal:** Emit Kafka events when content visibility changes (hide/show, state change, section change), not only on new-version publish.
+**Obiettivo:** emettere eventi Kafka quando cambia la visibilità di un contenuto (hide/show, cambio stato, cambio sezione), non solo alla pubblicazione di una nuova versione.
 
 **Piano A (questo documento) vs Piano B (alternativo):** intercettare `eZSolr::addObject()` con un `ezpIndexPlugin` — il **Piano B** — sarebbe l'entry point più compatto perché un singolo hook copre automaticamente ogni path che re-indicizza il contenuto. È stato però scartato in questa fase perché legherebbe l'emissione eventi alla presenza di Solr: uno degli obiettivi a medio termine è poter **disattivare Solr** sui tenant che non lo usano (es. sostituirlo con un motore di ricerca esterno); se l'emissione Kafka dipendesse dal plugin di indicizzazione Solr, dismetterlo significherebbe perdere gli eventi. La strategia ibrida del Piano A separa emissione e layer di ricerca. Il Piano B resta documentato in [`piano-b-solr-index-plugin.md`](./piano-b-solr-index-plugin.md) come fallback ripristinabile se i gap del Piano A (hide subtree figli, translation, trash, move) diventassero bloccanti.
 
-**Architecture:** Three complementary mechanisms cover all visibility-change paths without depending on Solr being the event trigger:
-1. **Operation handler workflows** — extend `WorkflowWebHookType` to handle `post_hide`, `post_updateobjectstate`, `post_updatesection` in addition to `post_publish`; register DB triggers for these operations. Covers all UI-originated changes.
-2. **`ezpEvent` listener** — `OpenPAStateTools::flushObject()` and `OpenPASectionTools::flushObject()` fire `ezpEvent('openpa/object/flushed')`; `OCWebHookObjectFlushListener` in `ocwebhookserver` emits. Covers cron-originated changes without coupling `openpa` to `ocwebhookserver`.
-3. **Payload builder extraction** — `OCWebHookPayloadBuilder` shared by all emit paths to eliminate code duplication.
+**Architettura:** tre meccanismi complementari coprono tutti i path di cambio visibilità senza dipendere da Solr come sorgente dell'evento:
+1. **Workflow su operation handler** — estendere `WorkflowWebHookType` per gestire `post_hide`, `post_updateobjectstate`, `post_updatesection` oltre a `post_publish`; registrare le righe trigger nel DB per queste operazioni. Copre tutti i cambi originati da UI.
+2. **Listener `ezpEvent`** — `OpenPAStateTools::flushObject()` e `OpenPASectionTools::flushObject()` emettono `ezpEvent('openpa/object/flushed')`; `OCWebHookObjectFlushListener` in `ocwebhookserver` riceve l'evento ed emette. Copre i cambi originati da cron senza accoppiare `openpa` a `ocwebhookserver`.
+3. **Estrazione payload builder** — `OCWebHookPayloadBuilder` condiviso da tutti i path di emit, per eliminare la duplicazione di codice.
 
-**Event model (single trigger, no ce_type differentiation):** tutte le emissioni passano dall'identificatore esistente `PostPublishWebHookTrigger::IDENTIFIER` (`post_publish_ocopendata`). Non emettiamo eventi separati `.published`/`.unpublished`. Il payload include `metadata.isPublic` (computato da `checkAccess`) e il **consumer è responsabile di filtrare/derivare** quanto serve (es. ignorare eventi su contenuti privati, dedurre transizioni published↔unpublished diffando rispetto allo stato precedente).
+**Modello eventi (singolo trigger, nessuna differenziazione `ce_type`):** tutte le emissioni passano dall'identificatore esistente `PostPublishWebHookTrigger::IDENTIFIER` (`post_publish_ocopendata`). Non emettiamo eventi separati `.published`/`.unpublished`. Il payload include `metadata.isPublic` (calcolato da `checkAccess`) e il **consumer è responsabile di filtrare/derivare** quanto serve (es. ignorare eventi su contenuti privati, dedurre le transizioni published↔unpublished con un diff rispetto allo stato precedente).
 
-**Queue handling:** `PostPublishWebHookTrigger::getQueueHandler()` ritorna `HANDLER_SCHEDULED`, quindi la consegna a Kafka è già asincrona via outbox per tutti i path. Il costo sincrono inevitabile è la costruzione del payload (full content fetch + `filterContent` + relation enrichment), che resta nel loop chiamante; vedere "Performance considerations" sotto.
+**Gestione coda:** `PostPublishWebHookTrigger::getQueueHandler()` ritorna `HANDLER_SCHEDULED`, quindi la consegna a Kafka è già asincrona via outbox per tutti i path. Il costo sincrono inevitabile è la costruzione del payload (fetch completo del contenuto + `filterContent` + arricchimento relazioni), che resta nel loop chiamante; vedere "Considerazioni di performance" più sotto.
 
-**Casi coperti (extended scope dopo review):**
-- **Hide subtree propagation ai figli** — in `post_hide` enumeriamo i discendenti del nodo nascosto (path_string LIKE) ed emettiamo un evento per ciascuno. Vedi Task 2.1 — sezione "post_hide: subtree propagation".
+**Casi coperti (scope esteso dopo la review):**
+- **Propagazione hide subtree ai figli** — nel branch `post_hide` enumeriamo i discendenti del nodo nascosto (`path_string LIKE`) ed emettiamo un evento per ciascuno. Vedi Task 2.1 — sezione "post_hide: propagazione al subtree".
 - **Rimozione traduzione (`post_removetranslation`)** — gestito; il payload contiene l'oggetto con le lingue residue, `checkAccess` riflette se l'oggetto è ancora pubblicamente accessibile.
-- **Restore from trash** — la `kernel/content/restore.php` esegue una `AddLocation` action → `eZOperationHandler::execute('content','addlocation',...)` → trigger `post_addlocation`. Gestito.
-- **Trash (soft delete)** — già coperto da `DeleteWebHookTrigger`/`DeleteWorkflowWebHookType` su `pre_delete` (`move_to_trash=1` o `0`, entrambi emettono `delete_ocopendata`). Non duplichiamo qui.
-- **Move (`post_move`)** — gestito; cambi di sezione impliciti tramite ACL ereditate vengono riflessi via `checkAccess` nel payload.
+- **Restore da cestino** — `kernel/content/restore.php` esegue una `AddLocation` action → `eZOperationHandler::execute('content','addlocation',...)` → trigger `post_addlocation`. Gestito.
+- **Trash (soft delete)** — già coperto da `DeleteWebHookTrigger`/`DeleteWorkflowWebHookType` su `pre_delete` (con `move_to_trash=1` o `0`, entrambi emettono `delete_ocopendata`). Non duplichiamo qui.
+- **Move (`post_move`)** — gestito; i cambi di sezione impliciti dovuti alle ACL ereditate sono riflessi da `checkAccess` nel payload.
 
 **Casi NON coperti (consapevolmente):**
-- **Modifiche idempotenti** (stato/sezione "cambiati" allo stesso valore corrente, hide su nodo già nascosto) — emettiamo comunque; non facciamo diff lato producer. Coerente con la decisione "il consumer filtra".
+- **Modifiche idempotenti** (stato/sezione "cambiati" allo stesso valore corrente, hide su nodo già nascosto) — emettiamo comunque; non facciamo diff lato producer. Coerente con la decisione "filtra il consumer".
 - **Contenuto privato modificato** — emettiamo comunque con `isPublic: false`; il filtraggio è demandato al consumer.
 - **Hard delete senza passare da `eZOperationHandler::execute('content','delete',...)`** — fuori scope di questo piano (era già escluso dal pre-esistente `DeleteWebHookTrigger`).
 
-**Tech Stack:** PHP 7.2, eZ Publish 5 operation handler triggers (`eZTrigger`, `eZWorkflow`), `ezpEvent` hook system, existing `OCWebHookEmitter` / `OCWebHookKafkaPayloadFormatter` infrastructure.
+**Stack tecnico:** PHP 7.2, eZ Publish 5 operation handler trigger (`eZTrigger`, `eZWorkflow`), sistema di hook `ezpEvent`, infrastruttura esistente `OCWebHookEmitter` / `OCWebHookKafkaPayloadFormatter`.
 
 ---
 
-## File map
+## Mappa file
 
-| File | Action | Role |
+| File | Azione | Ruolo |
 |---|---|---|
-| `ocwebhookserver/classes/ocwebhookpayloadbuilder.php` | **Create** | Builds enriched ocopendata payload from `eZContentObject` |
-| `ocwebhookserver/eventtypes/event/workflowwebhook/workflowwebhooktype.php` | **Modify** | Add `post_hide`, `post_updateobjectstate`, `post_updatesection` handling |
-| `ocwebhookserver/bin/php/emit_all_published.php` | **Modify** | Use `OCWebHookPayloadBuilder::build()` instead of inline code |
-| `ocwebhookserver/classes/ocwebhookobjectflushlistener.php` | **Create** | `ezpEvent` listener — emits on `openpa/object/flushed` |
-| `ocwebhookserver/settings/site.ini.append.php` | **Create** | Register listener: `[Event] Listeners[]=openpa/object/flushed@OCWebHookObjectFlushListener::handle` |
-| `ocwebhookserver/tests/PayloadBuilderTest.php` | **Create** | Unit tests for `OCWebHookPayloadBuilder` helpers |
-| `openpa/classes/openpastatetools.php` | **Modify** | Fire `ezpEvent('openpa/object/flushed')` from `flushObject()` |
-| `openpa/classes/openpasectiontools.php` | **Modify** | Fire `ezpEvent('openpa/object/flushed')` from `flushObject()` |
+| `ocwebhookserver/classes/ocwebhookpayloadbuilder.php` | **Creare** | Costruisce il payload ocopendata arricchito a partire da `eZContentObject` |
+| `ocwebhookserver/eventtypes/event/workflowwebhook/workflowwebhooktype.php` | **Modificare** | Aggiungere la gestione di `post_hide`, `post_updateobjectstate`, `post_updatesection` (+ gli altri trigger del Task 2) |
+| `ocwebhookserver/bin/php/emit_all_published.php` | **Modificare** | Usare `OCWebHookPayloadBuilder::build()` al posto del codice inline |
+| `ocwebhookserver/classes/ocwebhookobjectflushlistener.php` | **Creare** | Listener `ezpEvent` — emette su `openpa/object/flushed` |
+| `ocwebhookserver/settings/site.ini.append.php` | **Creare** | Registrare il listener: `[Event] Listeners[]=openpa/object/flushed@OCWebHookObjectFlushListener::handle` |
+| `ocwebhookserver/tests/PayloadBuilderTest.php` | **Creare** | Unit test per gli helper di `OCWebHookPayloadBuilder` |
+| `openpa/classes/openpastatetools.php` | **Modificare** | Emettere `ezpEvent('openpa/object/flushed')` da `flushObject()` |
+| `openpa/classes/openpasectiontools.php` | **Modificare** | Emettere `ezpEvent('openpa/object/flushed')` da `flushObject()` |
 
 ---
 
-## Context you need to understand first
+## Contesto da conoscere prima
 
-### Coverage by mechanism
+### Copertura per meccanismo
 
-| User action | Mechanism | Trigger | Status |
+| Azione utente | Meccanismo | Trigger | Stato |
 |---|---|---|---|
-| Publish new version (UI) | Operation handler | `post_publish` → `WorkflowWebHookType` | ✅ existing |
-| Hide/show node (UI, singolo) | Operation handler | `post_hide` → `WorkflowWebHookType` (+ enumera figli) | ✅ new |
-| Hide subtree → figli (`is_invisible` propagato) | Operation handler | `post_hide` enumera path_string discendenti, 1 emit per nodo | ✅ new (cap configurabile) |
-| Change state (UI) | Operation handler | `post_updateobjectstate` → `WorkflowWebHookType` | ✅ new |
-| Change section (UI singola sezione) | Operation handler | `post_updatesection` → `WorkflowWebHookType` | ✅ new |
-| Change state (cron `change_state.php`) | `ezpEvent` | `openpa/object/flushed` → `OCWebHookObjectFlushListener` | ✅ new |
-| Change section (cron `change_section.php`) | `ezpEvent` | `openpa/object/flushed` → `OCWebHookObjectFlushListener` | ✅ new |
-| Rimozione traduzione (`post_removetranslation`) | Operation handler | `post_removetranslation` → `WorkflowWebHookType` | ✅ new |
-| Move tra subtree (cambio sezione implicito) | Operation handler | `post_move` → `WorkflowWebHookType` | ✅ new |
-| Restore from trash | Operation handler | `post_addlocation` (la restore.php usa AddLocation) → `WorkflowWebHookType` | ✅ new |
+| Pubblicazione nuova versione (UI) | Operation handler | `post_publish` → `WorkflowWebHookType` | ✅ esistente |
+| Hide/show nodo (UI, singolo) | Operation handler | `post_hide` → `WorkflowWebHookType` (+ enumera figli) | ✅ nuovo |
+| Hide subtree → figli (`is_invisible` propagato) | Operation handler | `post_hide` enumera i discendenti via `path_string`, 1 emit per nodo | ✅ nuovo (cap configurabile) |
+| Cambio stato (UI) | Operation handler | `post_updateobjectstate` → `WorkflowWebHookType` | ✅ nuovo |
+| Cambio sezione (UI, singola sezione) | Operation handler | `post_updatesection` → `WorkflowWebHookType` | ✅ nuovo |
+| Cambio stato (cron `change_state.php`) | `ezpEvent` | `openpa/object/flushed` → `OCWebHookObjectFlushListener` | ✅ nuovo |
+| Cambio sezione (cron `change_section.php`) | `ezpEvent` | `openpa/object/flushed` → `OCWebHookObjectFlushListener` | ✅ nuovo |
+| Rimozione traduzione (`post_removetranslation`) | Operation handler | `post_removetranslation` → `WorkflowWebHookType` | ✅ nuovo |
+| Move tra subtree (cambio sezione implicito) | Operation handler | `post_move` → `WorkflowWebHookType` | ✅ nuovo |
+| Restore da cestino | Operation handler | `post_addlocation` (la `restore.php` usa AddLocation) → `WorkflowWebHookType` | ✅ nuovo |
 | Trash (soft delete) | Workflow esistente | `pre_delete` → `DeleteWorkflowWebHookType` → `delete_ocopendata` | ✅ pre-esistente |
 | Hard delete | Workflow esistente | `pre_delete` → `DeleteWorkflowWebHookType` → `delete_ocopendata` | ✅ pre-esistente |
-| Modifica contenuto privato (no transizione visibility) | — | emesso comunque con `isPublic: false` | ⚠️ filtrato dal consumer |
-| Modifica idempotente (stato/sezione invariati) | — | emesso comunque, no diff | ⚠️ filtrato dal consumer |
+| Modifica di contenuto privato (no transizione di visibilità) | — | emesso comunque con `isPublic: false` | ⚠️ filtra il consumer |
+| Modifica idempotente (stato/sezione invariati) | — | emesso comunque, no diff | ⚠️ filtra il consumer |
 
-### Parameters passed to WorkflowWebHookType per trigger
+### Parametri passati a `WorkflowWebHookType` per ciascun trigger
 
 `$process->attribute('parameter_list')` viene popolato dall'operation handler con le chiavi definite in `html/kernel/content/operation_definition.php`. Verificate sul codice corrente:
 
@@ -85,50 +85,50 @@
 
 **`post_hide` propaga `is_invisible` ai discendenti**: vedi `eZContentObjectTreeNode::hideSubTree()` in `html/kernel/classes/ezcontentobjecttreenode.php:5972`. La query SQL `UPDATE ezcontentobject_tree SET is_invisible=1 WHERE path_string LIKE '<padre>%'` cambia la visibilità di tutti i figli in un colpo solo; non c'è trigger per nodo. Per emettere un evento per ciascun discendente lo facciamo manualmente nel branch `post_hide` (vedi Task 2.1, sezione subtree propagation).
 
-### How eZ Publish workflow triggers work
+### Come funzionano i workflow trigger di eZ Publish
 
-Triggers are rows in the `eztrigger` table mapping `(module_name, function_name, connect_type)` → `workflow_id`. When `eZOperationHandler::execute('content', 'hide', ...)` runs, eZ looks up all triggers for `content/hide/post` and executes the linked workflows in order. Each workflow runs event types in sequence. `WorkflowWebHookType` is the event type we use.
+I trigger sono righe nella tabella `eztrigger` che mappano `(module_name, function_name, connect_type)` → `workflow_id`. Quando viene eseguito `eZOperationHandler::execute('content', 'hide', ...)`, eZ cerca tutti i trigger per `content/hide/post` ed esegue i workflow collegati in ordine. Ogni workflow esegue in sequenza i propri event type. `WorkflowWebHookType` è l'event type che usiamo.
 
-The installer creates the workflow and trigger row for `post_publish`. We must add rows for the three new operations.
+L'installer crea il workflow e la riga trigger per `post_publish`. Dobbiamo aggiungere le righe per le sei operazioni nuove (vedi Task 2.2).
 
-### ezpEvent system
+### Sistema `ezpEvent`
 
-`ezpEvent::getInstance()->notify($name, $params)` dispatches to all registered listeners. Listeners are registered in `site.ini.append.php`:
+`ezpEvent::getInstance()->notify($name, $params)` invia l'evento a tutti i listener registrati. I listener si registrano in `site.ini.append.php`:
 
 ```ini
 [Event]
 Listeners[]=openpa/object/flushed@ClassName::method
 ```
 
-The listener method receives the `$params` array as arguments. If we call `notify('openpa/object/flushed', [$object])`, the listener receives `handle(eZContentObject $object)`.
+Il metodo del listener riceve l'array `$params` come argomenti. Se chiamiamo `notify('openpa/object/flushed', [$object])`, il listener riceve `handle(eZContentObject $object)`.
 
-eZ reads listeners via `eZINI::instance('site.ini')->variable('Event', 'Listeners')` — the merge happens at runtime, so `EZINIMERGE_` env vars and extension INI files all contribute.
+eZ legge i listener via `eZINI::instance('site.ini')->variable('Event', 'Listeners')` — il merge avviene a runtime, quindi env var `EZINIMERGE_` e file INI delle estensioni contribuiscono tutti.
 
-### Current payload-building code (to be extracted)
+### Codice attuale di costruzione payload (da estrarre)
 
-`eventtypes/event/workflowwebhook/workflowwebhooktype.php` lines ~26–104: builds the payload inline. Two private helpers:
+`eventtypes/event/workflowwebhook/workflowwebhooktype.php` righe ~26–104: costruisce il payload inline. Due helper privati:
 - `userInfo(int $userId): ?array`
 - `enrichRelationContentUrls(array &$payload, string $baseUrl): void`
 
-`bin/php/emit_all_published.php` lines ~145–154: partially duplicates the same logic.
+`bin/php/emit_all_published.php` righe ~145–154: duplica parzialmente la stessa logica.
 
-### Performance considerations (cron paths)
+### Considerazioni di performance (path cron)
 
-`OCWebHookPayloadBuilder::build()` esegue, per ogni oggetto: full `eZContentObject::fetch`, `Content::createFromEzContentObject`, `filterContent` (con `DefaultEnvironmentSettings` + parsing della request), `checkAccess` per anonimo, lookup endpoint OpenAPI, ed enrich relazioni (una `fetch` per ciascun `mainNodeId` di item relazione). Per pubblicazione singola UI è trascurabile; per i cron `change_state.php`/`change_section.php` che possono iterare centinaia di oggetti diventa significativo.
+`OCWebHookPayloadBuilder::build()` esegue, per ogni oggetto: `eZContentObject::fetch` completo, `Content::createFromEzContentObject`, `filterContent` (con `DefaultEnvironmentSettings` + parsing della request), `checkAccess` per utente anonimo, lookup endpoint OpenAPI, e arricchimento delle relazioni (una `fetch` per ciascun `mainNodeId` di item relazione). Per la pubblicazione singola da UI è trascurabile; per i cron `change_state.php`/`change_section.php`, che possono iterare centinaia di oggetti, diventa significativo.
 
 **Mitigazioni in atto:**
 - `PostPublishWebHookTrigger::getQueueHandler()` ritorna già `HANDLER_SCHEDULED` → la push verso Kafka NON è sincrona, viene messa in outbox e processata dal worker. **Quindi il costo Kafka-network non blocca il cron.** Il readme `ocwebhookserver/readme.md:32-33` è disallineato (parla di `HANDLER_IMMEDIATE`) e va corretto in un commit separato.
-- Il costo della build payload resta sincrono nel loop del cron.
+- Il costo della build del payload resta sincrono nel loop del cron.
 
-**Da NON fare in questo piano:** prematura ottimizzazione (cache layer, batch, queue interno). Prima misurare:
+**Da NON fare in questo piano:** ottimizzazioni premature (cache layer, batch, coda interna). Prima misurare:
 - Tempo medio cron `change_state.php` prima/dopo il fix.
-- Se cresce di >30% → aggiungere TaskCreate per progettare strategia di buffering.
+- Se cresce di >30% → aprire un task per progettare una strategia di buffering.
 
-**Loop guard:** il listener `OCWebHookObjectFlushListener::handle` NON deve generare a sua volta operazioni che ri-triggerano `flushObject()` o un trigger workflow (es. evitare `eZContentObjectTreeNode::hideSubTree`, `assignState`, ecc. dentro il listener). Solo lettura.
+**Loop guard:** il listener `OCWebHookObjectFlushListener::handle` NON deve generare a sua volta operazioni che ri-triggerino `flushObject()` o un trigger workflow (es. evitare `eZContentObjectTreeNode::hideSubTree`, `assignState`, ecc. dentro il listener). Solo lettura.
 
-### Autoload note
+### Nota sull'autoload
 
-After adding new PHP class files, regenerate the eZ autoload map inside the container:
+Dopo aver aggiunto nuovi file di classe PHP, rigenerare la mappa di autoload eZ dentro al container:
 
 ```bash
 OUT=$(docker exec cms-app-1 /usr/local/bin/php -d memory_limit=256M html/bin/php/ezpgenerateautoloads.php -e 2>&1); echo "$OUT"
@@ -136,16 +136,16 @@ OUT=$(docker exec cms-app-1 /usr/local/bin/php -d memory_limit=256M html/bin/php
 
 ---
 
-## Task 1: Create OCWebHookPayloadBuilder
+## Task 1 — Creare `OCWebHookPayloadBuilder`
 
-Extract all payload-building logic into a single reusable static class. After this task the workflow and the bulk script call `OCWebHookPayloadBuilder::build()` and produce identical output to today.
+Estrarre tutta la logica di costruzione del payload in un'unica classe statica riusabile. Al termine del task il workflow e lo script bulk chiamano `OCWebHookPayloadBuilder::build()` e producono lo stesso output di oggi.
 
-**Files:**
-- Create: `classes/ocwebhookpayloadbuilder.php`
-- Modify: `eventtypes/event/workflowwebhook/workflowwebhooktype.php`
-- Modify: `bin/php/emit_all_published.php`
+**File:**
+- Creare: `classes/ocwebhookpayloadbuilder.php`
+- Modificare: `eventtypes/event/workflowwebhook/workflowwebhooktype.php`
+- Modificare: `bin/php/emit_all_published.php`
 
-- [ ] **Step 1.1: Create `classes/ocwebhookpayloadbuilder.php`**
+- [ ] **Step 1.1: creare `classes/ocwebhookpayloadbuilder.php`**
 
 ```php
 <?php
@@ -302,11 +302,11 @@ class OCWebHookPayloadBuilder
 }
 ```
 
-- [ ] **Step 1.2: Update `WorkflowWebHookType::execute()` to use `OCWebHookPayloadBuilder`**
+- [ ] **Step 1.2: aggiornare `WorkflowWebHookType::execute()` per usare `OCWebHookPayloadBuilder`**
 
-Replace the inline payload-building block with a call to the builder. Keep the `post_publish` handling intact; the new trigger cases are added in Task 2. The `use Opencontent\Opendata\Api\Values\Content;` import and the private helper methods (`userInfo`, `enrichRelationContentUrls`) are removed since they move to the builder.
+Sostituire il blocco inline di costruzione del payload con una chiamata al builder. Lasciare intatta la gestione di `post_publish`; i nuovi trigger sono aggiunti nel Task 2. L'import `use Opencontent\Opendata\Api\Values\Content;` e i metodi helper privati (`userInfo`, `enrichRelationContentUrls`) vengono rimossi perché spostati nel builder.
 
-The method body for `post_publish` becomes:
+Il corpo del metodo per `post_publish` diventa:
 
 ```php
 function execute($process, $event)
@@ -335,9 +335,9 @@ function execute($process, $event)
 }
 ```
 
-- [ ] **Step 1.3: Update `emit_all_published.php` to use `OCWebHookPayloadBuilder`**
+- [ ] **Step 1.3: aggiornare `emit_all_published.php` per usare `OCWebHookPayloadBuilder`**
 
-Replace the inline payload block (around lines 145–154):
+Sostituire il blocco inline del payload (intorno alle righe 145–154):
 
 ```php
     try {
@@ -363,26 +363,26 @@ Replace the inline payload block (around lines 145–154):
     }
 ```
 
-Remove the now-redundant `$mainNode` / `isPublic` lines that were previously inline (they are inside `OCWebHookPayloadBuilder::build()` now).
+Rimuovere le righe ormai ridondanti `$mainNode` / `isPublic` che erano inline (ora sono dentro `OCWebHookPayloadBuilder::build()`).
 
-Add a `require_once` at the top of the script, following the same pattern as existing requires:
+Aggiungere un `require_once` in cima allo script, seguendo lo stesso pattern dei require esistenti:
 
 ```php
 require_once $extensionDir . '/classes/ocwebhookpayloadbuilder.php';
 ```
 
-Where `$extensionDir` is derived from the existing require pattern at the top of the file.
+Dove `$extensionDir` è derivato dal pattern di require esistente in testa al file.
 
-- [ ] **Step 1.4: Run unit tests — no regression**
+- [ ] **Step 1.4: eseguire gli unit test — nessuna regressione**
 
 ```bash
 cd /Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver
 php tests/PayloadFormatterTest.php
 ```
 
-Expected: all 111 tests pass, exit 0.
+Atteso: tutti i 111 test passano, exit 0.
 
-- [ ] **Step 1.5: Commit**
+- [ ] **Step 1.5: commit**
 
 ```bash
 cd /Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver
@@ -394,13 +394,13 @@ git commit -m "refactor: extract OCWebHookPayloadBuilder from WorkflowWebHookTyp
 
 ---
 
-## Task 2: Extend WorkflowWebHookType for visibility-change triggers
+## Task 2 — Estendere `WorkflowWebHookType` con i trigger di cambio visibilità
 
-Add `post_hide`, `post_updateobjectstate`, `post_updatesection` handling to `WorkflowWebHookType`, then register DB trigger rows so eZ fires the workflow for these operations.
+Aggiungere la gestione di `post_hide`, `post_updateobjectstate`, `post_updatesection`, `post_removetranslation`, `post_move`, `post_addlocation` a `WorkflowWebHookType`, poi registrare le righe trigger nel DB così che eZ esegua il workflow per queste operazioni.
 
-**Files:**
-- Modify: `eventtypes/event/workflowwebhook/workflowwebhooktype.php`
-- Modify: installer PHP callable (add trigger registration) — find it by looking at the existing installer step that creates the `post_publish` trigger
+**File:**
+- Modificare: `eventtypes/event/workflowwebhook/workflowwebhooktype.php`
+- Modificare: `classes/ocwebhookkafkasetupservice.php` (aggiungere registrazione trigger, vedi Step 2.2)
 
 - [ ] **Step 2.1: Estendere `WorkflowWebHookType::execute()` con tutti i trigger di visibilità**
 
@@ -480,7 +480,7 @@ private static function emitFor(eZContentObject $object)
 }
 ```
 
-**post_hide: subtree propagation.**
+**`post_hide`: propagazione al subtree.**
 
 `eZContentObjectTreeNode::hideSubTree()` aggiorna in un colpo solo tutti i discendenti via `UPDATE ezcontentobject_tree SET is_invisible=1 WHERE path_string LIKE '<padre>%'`. Non c'è trigger per nodo. Per emettere un evento per ciascun discendente:
 
@@ -659,38 +659,38 @@ ORDER BY id;
 
 Atteso: 7 righe (1 esistente + 6 nuove), tutte con lo stesso `workflow_id` (quello di `post_publish`) e `connect_type = 'a'`. Le righe di `pre_delete` su un workflow_id separato non vanno toccate.
 
-- [ ] **Step 2.5: Smoke test — hide/show, state change, section change from UI**
+- [ ] **Step 2.5: smoke test — hide/show, cambio stato, cambio sezione da UI**
 
-Perform each action in the admin UI and check Kafka for events:
+Eseguire ciascuna azione nell'admin UI e verificare gli eventi su Kafka:
 
 ```bash
 OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
   --brokers redpanda:9092 --offset end --num 5 2>&1); echo "$OUT"
 ```
 
-Expected per action: una o più messaggi Kafka con `metadata.isPublic` che riflette il nuovo stato.
+Atteso per ciascuna azione: uno o più messaggi Kafka con `metadata.isPublic` che riflette il nuovo stato.
 
 1. **Hide singolo**: nodo foglia → Actions → Hide → 1 evento con `isPublic: false`.
 2. **Show**: stesso nodo → Actions → Show → 1 evento con `isPublic: true`.
 3. **Hide subtree**: nodo padre con N figli (N < 500) → Hide → **N+1 eventi**: 1 per il padre + N per i discendenti, tutti con `isPublic: false`.
-4. **Hide subtree oltre il cap**: padre con > 500 discendenti → 1 evento (il padre) + log warning in `webhook.log` "subtree under node X has Y descendants (> 500 cap)". Nessun evento per i figli.
-5. **State change UI**: Admin → States → assegna stato diverso → 1 evento.
-6. **Section change UI**: Admin → cambia sezione → 1 evento.
+4. **Hide subtree oltre il cap**: padre con > 500 discendenti → 1 evento (il padre) + warning in `webhook.log` del tipo "subtree under node X has Y descendants (> 500 cap)". Nessun evento per i figli.
+5. **Cambio stato UI**: Admin → States → assegnare stato diverso → 1 evento.
+6. **Cambio sezione UI**: Admin → cambiare sezione → 1 evento.
 7. **Move cross-subtree**: spostare un nodo verso un parent in sezione diversa → 1 evento con eventuale `isPublic` modificato dalle ACL nuove.
-8. **Remove translation**: rimuovere una traduzione di un oggetto multilingua → 1 evento; se era l'ultima traduzione anonimamente leggibile, `isPublic: false`.
-9. **Restore from trash**: cestinare un oggetto, poi `/content/restore/<id>` → 1 evento (via `post_addlocation`) con stato attuale.
+8. **Rimozione traduzione**: rimuovere una traduzione di un oggetto multilingua → 1 evento; se era l'ultima traduzione leggibile dall'anonimo, `isPublic: false`.
+9. **Restore da cestino**: cestinare un oggetto, poi `/content/restore/<id>` → 1 evento (via `post_addlocation`) con lo stato attuale.
 10. **Trash (soft delete)**: cestinare un oggetto → 1 evento `delete_ocopendata` via `DeleteWorkflowWebHookType` (NON via questo workflow).
-11. **Idempotenza**: ri-applicare lo stesso stato/sezione che il contenuto ha già → evento emesso comunque (atteso, filtra il consumer).
+11. **Idempotenza**: riapplicare lo stesso stato/sezione che il contenuto ha già → evento emesso comunque (atteso, filtra il consumer).
 
-- [ ] **Step 2.6: Run unit tests**
+- [ ] **Step 2.6: eseguire gli unit test**
 
 ```bash
 php tests/PayloadFormatterTest.php
 ```
 
-Expected: all 111 tests pass.
+Atteso: tutti i 111 test passano.
 
-- [ ] **Step 2.7: Commit**
+- [ ] **Step 2.7: commit**
 
 ```bash
 git add eventtypes/event/workflowwebhook/workflowwebhooktype.php \
@@ -700,13 +700,13 @@ git commit -m "feat: emit Kafka events on hide/show, state change, section chang
 
 ---
 
-## Task 3: Fire ezpEvent from OpenPASectionTools and OpenPAStateTools
+## Task 3 — Emettere `ezpEvent` da `OpenPASectionTools` e `OpenPAStateTools`
 
-Add `ezpEvent::notify('openpa/object/flushed', [$object])` to `flushObject()` in the `openpa` extension so that cron-originated changes emit Kafka events without coupling `openpa` to `ocwebhookserver`.
+Aggiungere `ezpEvent::notify('openpa/object/flushed', [$object])` dentro `flushObject()` dell'estensione `openpa`, così che i cambi originati da cron emettano eventi Kafka senza accoppiare `openpa` a `ocwebhookserver`.
 
-**Files (path locali nella copia composer del cms-dev — i repo upstream sono in `../openpa/`):**
-- Modify: `html/extension/openpa/classes/openpastatetools.php`
-- Modify: `html/extension/openpa/classes/openpasectiontools.php`
+**File (path locali nella copia composer del cms-dev — i repo upstream sono in `../openpa/`):**
+- Modificare: `html/extension/openpa/classes/openpastatetools.php`
+- Modificare: `html/extension/openpa/classes/openpasectiontools.php`
 
 ### Signature reale (verificata sul codice corrente)
 
@@ -737,7 +737,7 @@ private function flushObject(eZContentObject $object)
 
 Quindi **non serve `eZContentObject::fetch((int)$objectId)`**: l'oggetto è già nel parametro. Notare che entrambi i metodi rifanno `eZContentObject::fetch($object->attribute('id'))` dopo `clearCache()` — useremo la variabile post-fetch per il `notify`, così il listener vede l'oggetto re-idratato (cache invalidata, datamap pulita).
 
-- [ ] **Step 3.1: Confermare le signature sul codice corrente**
+- [ ] **Step 3.1: confermare le signature sul codice corrente**
 
 ```bash
 grep -n 'private function flushObject\|registerSearchObject' \
@@ -747,7 +747,7 @@ grep -n 'private function flushObject\|registerSearchObject' \
 
 Atteso: due match `private function flushObject(eZContentObject $object)` e due `registerSearchObject`.
 
-- [ ] **Step 3.2: Aggiungere il notify a `OpenPAStateTools::flushObject()`**
+- [ ] **Step 3.2: aggiungere il notify a `OpenPAStateTools::flushObject()`**
 
 Dopo la chiamata a `eZContentCacheManager::clearContentCacheIfNeeded()` (subito prima del secondo `resetDataMap`), aggiungere il dispatch dell'evento. Riusare la `$object` re-fetched, non rifare la fetch:
 
@@ -769,7 +769,7 @@ private function flushObject(eZContentObject $object)
 }
 ```
 
-- [ ] **Step 3.3: Aggiungere il notify a `OpenPASectionTools::flushObject()`**
+- [ ] **Step 3.3: aggiungere il notify a `OpenPASectionTools::flushObject()`**
 
 Stesso pattern, sempre dopo `clearContentCacheIfNeeded`:
 
@@ -787,7 +787,7 @@ private function flushObject(eZContentObject $object)
 }
 ```
 
-- [ ] **Step 3.4: Verificare la dispatch (listener stub)**
+- [ ] **Step 3.4: verificare la dispatch (listener stub)**
 
 Senza ancora aver creato il listener vero (Task 4), aggiungere un listener temporaneo per validazione (`file_put_contents` dentro un metodo di prova) oppure ispezionare il log dopo aver attivato Task 4. In alternativa, lanciare il cron e controllare poi che `OCWebHookObjectFlushListener::handle` venga invocato:
 
@@ -795,7 +795,7 @@ Senza ancora aver creato il listener vero (Task 4), aggiungere un listener tempo
 OUT=$(docker exec cms-app-1 /usr/local/bin/php html/runcronjobs.php --siteaccess=opencity change_state 2>&1); echo "$OUT"
 ```
 
-- [ ] **Step 3.5: Commit nel repo openpa**
+- [ ] **Step 3.5: commit nel repo openpa**
 
 ```bash
 cd /Volumes/Repos/sviluppo-sito-comunale/openpa
@@ -808,15 +808,15 @@ git commit -m "feat: fire ezpEvent openpa/object/flushed from flushObject()"
 
 ---
 
-## Task 4: Create OCWebHookObjectFlushListener in ocwebhookserver
+## Task 4 — Creare `OCWebHookObjectFlushListener` in `ocwebhookserver`
 
-Create the listener class that receives `openpa/object/flushed` and emits the Kafka event. Register it in `site.ini.append.php`.
+Creare la classe listener che riceve `openpa/object/flushed` ed emette l'evento Kafka. Registrarla in `site.ini.append.php`.
 
-**Files:**
-- Create: `ocwebhookserver/classes/ocwebhookobjectflushlistener.php`
-- Create: `ocwebhookserver/settings/site.ini.append.php`
+**File:**
+- Creare: `ocwebhookserver/classes/ocwebhookobjectflushlistener.php`
+- Creare: `ocwebhookserver/settings/site.ini.append.php`
 
-- [ ] **Step 4.1: Create `classes/ocwebhookobjectflushlistener.php`**
+- [ ] **Step 4.1: creare `classes/ocwebhookobjectflushlistener.php`**
 
 ```php
 <?php
@@ -824,8 +824,8 @@ Create the listener class that receives `openpa/object/flushed` and emits the Ka
 class OCWebHookObjectFlushListener
 {
     /**
-     * Handles the openpa/object/flushed event.
-     * Called by ezpEvent when OpenPAStateTools or OpenPASectionTools flushes an object.
+     * Gestisce l'evento openpa/object/flushed.
+     * Invocato da ezpEvent quando OpenPAStateTools o OpenPASectionTools flushano un oggetto.
      *
      * @param eZContentObject $object
      */
@@ -845,9 +845,9 @@ class OCWebHookObjectFlushListener
 }
 ```
 
-- [ ] **Step 4.2: Create `settings/site.ini.append.php`**
+- [ ] **Step 4.2: creare `settings/site.ini.append.php`**
 
-Check first whether `settings/site.ini.append.php` already exists in `ocwebhookserver`. If it does, add the `[Event]` block to the existing file. If not, create it:
+Verificare prima se `settings/site.ini.append.php` esiste già in `ocwebhookserver`. Se sì, aggiungere il blocco `[Event]` al file esistente. Altrimenti crearlo:
 
 ```php
 <?php /* #?ini charset="utf-8"?
@@ -858,49 +858,49 @@ Listeners[]=openpa/object/flushed@OCWebHookObjectFlushListener::handle
 */ ?>
 ```
 
-- [ ] **Step 4.3: Regenerate the eZ autoload map**
+- [ ] **Step 4.3: rigenerare la mappa di autoload eZ**
 
 ```bash
 OUT=$(docker exec cms-app-1 /usr/local/bin/php -d memory_limit=256M \
   html/bin/php/ezpgenerateautoloads.php -e 2>&1); echo "$OUT"
 ```
 
-Verify:
+Verificare:
 
 ```bash
 OUT=$(docker exec cms-app-1 grep "OCWebHookObjectFlushListener" html/var/autoload/ezp_extension.php 2>&1); echo "$OUT"
 ```
 
-Expected: one line showing the class-to-file mapping.
+Atteso: una riga con il mapping classe → file.
 
-- [ ] **Step 4.4: Smoke test — cron state change emits event**
+- [ ] **Step 4.4: smoke test — cron di cambio stato emette evento**
 
-Run the `change_state` cron (or `change_section`) on the local environment and verify a Kafka message appears:
+Eseguire il cron `change_state` (o `change_section`) sull'ambiente locale e verificare che compaia un messaggio Kafka:
 
 ```bash
-# Trigger the cron
+# Avviare il cron
 OUT=$(docker exec cms-app-1 /usr/local/bin/php \
   html/runcronjobs.php --siteaccess=opencity change_state 2>&1); echo "$OUT"
 
-# Check Kafka
+# Controllare Kafka
 OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
   --brokers redpanda:9092 --offset end --num 3 2>&1); echo "$OUT"
 ```
 
-Expected: if there are pending state-change jobs, a Kafka message per changed object appears.
+Atteso: se ci sono job di cambio stato pendenti, compare un messaggio Kafka per ogni oggetto cambiato.
 
-If no pending jobs exist, set up a test object with a scheduled state change, or temporarily call `OpenPAStateTools::flushObject()` directly in a test script.
+Se non ci sono job pendenti, preparare un oggetto di prova con un cambio stato schedulato, oppure invocare temporaneamente `OpenPAStateTools::flushObject()` da uno script di test.
 
-- [ ] **Step 4.5: Run unit tests**
+- [ ] **Step 4.5: eseguire gli unit test**
 
 ```bash
 cd /Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver
 php tests/PayloadFormatterTest.php
 ```
 
-Expected: all 111 tests pass.
+Atteso: tutti i 111 test passano.
 
-- [ ] **Step 4.6: Commit**
+- [ ] **Step 4.6: commit**
 
 ```bash
 git add classes/ocwebhookobjectflushlistener.php settings/site.ini.append.php
@@ -909,22 +909,22 @@ git commit -m "feat: add OCWebHookObjectFlushListener — emit on openpa/object/
 
 ---
 
-## Task 5: Unit tests for OCWebHookPayloadBuilder helpers
+## Task 5 — Unit test per gli helper di `OCWebHookPayloadBuilder`
 
-`OCWebHookPayloadBuilder::build()` depends on eZ classes and requires a full eZ bootstrap. We test the two public static helpers (`userInfo`, `enrichRelationContentUrls`) with the existing stubs infrastructure.
+`OCWebHookPayloadBuilder::build()` dipende dalle classi eZ e richiede un bootstrap eZ completo. Testiamo i due helper statici pubblici (`userInfo`, `enrichRelationContentUrls`) usando l'infrastruttura di stub esistente.
 
-**Files:**
-- Create: `tests/PayloadBuilderTest.php`
+**File:**
+- Creare: `tests/PayloadBuilderTest.php`
 
-- [ ] **Step 5.1: Check what stubs already exist in `tests/`**
+- [ ] **Step 5.1: verificare quali stub esistono già in `tests/`**
 
 ```bash
 ls /Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver/tests/
 ```
 
-Look for `stubs.php` or similar. The formatter tests use stubs for `eZContentObject`, `eZUser`, etc. Reuse what exists.
+Cercare `stubs.php` o file simili. I test del formatter usano stub per `eZContentObject`, `eZUser`, ecc. Riusare quanto esiste.
 
-- [ ] **Step 5.2: Create `tests/PayloadBuilderTest.php`**
+- [ ] **Step 5.2: creare `tests/PayloadBuilderTest.php`**
 
 ```php
 <?php
@@ -1034,20 +1034,20 @@ echo "\n";
 exit($FAILED > 0 ? 1 : 0);
 ```
 
-- [ ] **Step 5.3: Run the test**
+- [ ] **Step 5.3: eseguire il test**
 
 ```bash
 cd /Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver
 php tests/PayloadBuilderTest.php
 ```
 
-Expected: all PASS, exit 0.
+Atteso: tutti PASS, exit 0.
 
-- [ ] **Step 5.4: Add to test runner if applicable**
+- [ ] **Step 5.4: aggiungere al test runner se rilevante**
 
-Check `tests/run_tests.php` (or equivalent). If it lists test files explicitly, add `PayloadBuilderTest.php`. If it auto-discovers by glob, skip this step.
+Verificare `tests/run_tests.php` (o equivalente). Se elenca i file di test esplicitamente, aggiungere `PayloadBuilderTest.php`. Se invece scopre i test via glob, saltare questo step.
 
-- [ ] **Step 5.5: Commit**
+- [ ] **Step 5.5: commit**
 
 ```bash
 git add tests/PayloadBuilderTest.php
@@ -1056,48 +1056,48 @@ git commit -m "test: add PayloadBuilderTest for OCWebHookPayloadBuilder helpers"
 
 ---
 
-## Self-review
+## Auto-revisione
 
-**Spec coverage:**
+**Copertura della specifica:**
 
-| Requirement | Covered by | Status |
+| Requisito | Coperto da | Stato |
 |---|---|---|
-| Emit on hide/show (UI singolo) | Task 2 — `post_hide` workflow trigger | ✅ |
-| Emit on hide subtree → figli | Task 2 — `emitForSubtreeDescendants` con cap 500 | ✅ |
-| Emit on state change (UI) | Task 2 — `post_updateobjectstate` workflow trigger | ✅ |
-| Emit on section change (UI) | Task 2 — `post_updatesection` workflow trigger | ✅ |
-| Emit on state change (cron) | Task 3+4 — `ezpEvent` + listener | ✅ |
-| Emit on section change (cron) | Task 3+4 — `ezpEvent` + listener | ✅ |
-| Emit on remove translation | Task 2 — `post_removetranslation` workflow trigger | ✅ |
-| Emit on move (cross-section o no) | Task 2 — `post_move` workflow trigger | ✅ |
-| Emit on restore from trash | Task 2 — `post_addlocation` workflow trigger | ✅ |
-| Emit on trash (soft delete) | Workflow esistente `DeleteWorkflowWebHookType` (`pre_delete`) | ✅ pre-esistente |
-| `isPublic` in `metadata` di ogni evento | `OCWebHookPayloadBuilder::build()` chiama `checkAccess` | ✅ |
+| Emit su hide/show (UI singolo) | Task 2 — workflow trigger `post_hide` | ✅ |
+| Emit su hide subtree → figli | Task 2 — `emitForSubtreeDescendants` con cap 500 | ✅ |
+| Emit su cambio stato (UI) | Task 2 — workflow trigger `post_updateobjectstate` | ✅ |
+| Emit su cambio sezione (UI) | Task 2 — workflow trigger `post_updatesection` | ✅ |
+| Emit su cambio stato (cron) | Task 3+4 — `ezpEvent` + listener | ✅ |
+| Emit su cambio sezione (cron) | Task 3+4 — `ezpEvent` + listener | ✅ |
+| Emit su rimozione traduzione | Task 2 — workflow trigger `post_removetranslation` | ✅ |
+| Emit su move (cross-section o no) | Task 2 — workflow trigger `post_move` | ✅ |
+| Emit su restore da cestino | Task 2 — workflow trigger `post_addlocation` | ✅ |
+| Emit su trash (soft delete) | Workflow esistente `DeleteWorkflowWebHookType` (`pre_delete`) | ✅ pre-esistente |
+| `isPublic` nel `metadata` di ogni evento | `OCWebHookPayloadBuilder::build()` chiama `checkAccess` | ✅ |
 | `emit_all_published.php` allineato (refactor) | Task 1 Step 1.3 | ✅ |
-| Single trigger identifier (`post_publish_ocopendata`) per tutte le visibility | Tutti gli emit usano `PostPublishWebHookTrigger::IDENTIFIER` | ✅ — by design |
+| Singolo trigger identifier (`post_publish_ocopendata`) per tutte le visibility | Tutti gli emit usano `PostPublishWebHookTrigger::IDENTIFIER` | ✅ — by design |
 | Nessuna dipendenza da Solr per emettere | Operation handler + ezpEvent indipendenti dall'index plugin | ✅ — supporto futuro dismissione Solr |
 | Filtraggio eventi su contenuti privati | — | demandato al consumer (vedi header) |
 | Diff transizioni published↔unpublished | — | demandato al consumer (`metadata.isPublic`) |
-| Modifiche idempotenti (no diff producer-side) | — | demandato al consumer |
+| Modifiche idempotenti (nessun diff lato producer) | — | demandato al consumer |
 
-**Anti-double-emit analysis** (verificata sul kernel corrente):
+**Analisi anti-doppia-emissione** (verificata sul kernel corrente):
 
-- **Publish UI** → `eZOperationHandler::execute('content','publish',...)` → trigger `post_publish` → workflow → `WorkflowWebHookType::execute` → 1 emit. Non ci sono altri path che attivano emit su publish (no Solr plugin, no listener su `content/publish` ezpEvent).
-- **Hide singolo UI** → `kernel/content/hide.php` → `eZOperationHandler::execute('content','hide',...)` → trigger `post_hide` → workflow → 1 emit per il nodo + N emit per i discendenti (se subtree). `OpenPA*Tools::flushObject` NON viene invocato da `changeHideStatus`.
-- **State change UI** → `kernel/content/state_edit.php` / `kernel/state/assign.php` → `eZOperationHandler::execute('content','updateobjectstate',...)` → trigger `post_updateobjectstate` → workflow → 1 emit. La stessa operazione, dentro `eZContentOperationCollection::updateObjectState()`, fa `ezpEvent::notify('content/state/assign', ...)` — ma noi NON ascoltiamo quell'evento (ascoltiamo solo `openpa/object/flushed`), quindi nessun doppio emit.
-- **Section change UI** → `kernel/classes/ezsection.php:227` → `eZOperationHandler::execute('content','updatesection',...)` → trigger `post_updatesection` → workflow → 1 emit. `OpenPASectionTools::flushObject` NON viene chiamato da `eZContentOperationCollection::updateSection`.
-- **State change CRON** (`change_state.php`) → `OpenPAStateTools::changeCurrentObjectState()` → `$object->assignState($state)` (chiamata diretta, bypassa operation handler) → `flushCurrentObject()` → `flushObject($object)` → `ezpEvent::notify('openpa/object/flushed', [$object])` → listener → 1 emit. Nessun trigger workflow scatta perché non si passa da `eZOperationHandler::execute`.
-- **Section change CRON** (`change_section.php`) → `OpenPASectionTools::changeNodeSection()` → `eZContentOperationCollection::updateSection(...)` (chiamata diretta, NON via operation handler — quindi `post_updatesection` trigger non parte) → `flushObject($object)` → 1 emit via ezpEvent.
-- **Remove translation UI** → `eZOperationHandler::execute('content','removetranslation',...)` → trigger `post_removetranslation` → workflow → 1 emit. Nessun altro hook tocca questo path.
-- **Move UI** → `eZOperationHandler::execute('content','move',...)` → trigger `post_move` → workflow → 1 emit. Caso particolare: se il move è cross-section, `moveNode` internamente chiama `assignSectionToSubTree` ma NON innesca `post_updatesection` (è una chiamata diretta, non via operation handler). Quindi un solo emit anche nel caso cross-section.
-- **Restore from trash UI** → `kernel/content/restore.php` con `AddLocation` action → `eZOperationHandler::execute('content','addlocation',...)` → trigger `post_addlocation` → workflow → 1 emit. ATTENZIONE: anche un "AddLocation" manuale (admin → aggiungi posizione a un oggetto pubblicato) passa di qui ed emetterà — questo è il comportamento corretto, l'oggetto guadagna visibilità in una nuova area.
-- **Trash (soft delete)** → `eZOperationHandler::execute('content','delete',...)` con `move_to_trash=1` → trigger `pre_delete` → `DeleteWorkflowWebHookType` → 1 emit con identifier `delete_ocopendata`. Diverso identifier dagli altri eventi visibility — il consumer lo gestisce già.
+- **Publish da UI** → `eZOperationHandler::execute('content','publish',...)` → trigger `post_publish` → workflow → `WorkflowWebHookType::execute` → 1 emit. Non ci sono altri path che attivano emit su publish (no plugin Solr, no listener su `content/publish` ezpEvent).
+- **Hide singolo da UI** → `kernel/content/hide.php` → `eZOperationHandler::execute('content','hide',...)` → trigger `post_hide` → workflow → 1 emit per il nodo + N emit per i discendenti (se subtree). `OpenPA*Tools::flushObject` NON viene invocato da `changeHideStatus`.
+- **Cambio stato da UI** → `kernel/content/state_edit.php` / `kernel/state/assign.php` → `eZOperationHandler::execute('content','updateobjectstate',...)` → trigger `post_updateobjectstate` → workflow → 1 emit. La stessa operazione, dentro `eZContentOperationCollection::updateObjectState()`, esegue `ezpEvent::notify('content/state/assign', ...)` — ma NOI non ascoltiamo quell'evento (ascoltiamo solo `openpa/object/flushed`), quindi nessuna doppia emissione.
+- **Cambio sezione da UI** → `kernel/classes/ezsection.php:227` → `eZOperationHandler::execute('content','updatesection',...)` → trigger `post_updatesection` → workflow → 1 emit. `OpenPASectionTools::flushObject` NON viene chiamato da `eZContentOperationCollection::updateSection`.
+- **Cambio stato da CRON** (`change_state.php`) → `OpenPAStateTools::changeCurrentObjectState()` → `$object->assignState($state)` (chiamata diretta, bypassa l'operation handler) → `flushCurrentObject()` → `flushObject($object)` → `ezpEvent::notify('openpa/object/flushed', [$object])` → listener → 1 emit. Nessun trigger workflow scatta perché non si passa da `eZOperationHandler::execute`.
+- **Cambio sezione da CRON** (`change_section.php`) → `OpenPASectionTools::changeNodeSection()` → `eZContentOperationCollection::updateSection(...)` (chiamata diretta, NON via operation handler — quindi `post_updatesection` non parte) → `flushObject($object)` → 1 emit via ezpEvent.
+- **Rimozione traduzione da UI** → `eZOperationHandler::execute('content','removetranslation',...)` → trigger `post_removetranslation` → workflow → 1 emit. Nessun altro hook tocca questo path.
+- **Move da UI** → `eZOperationHandler::execute('content','move',...)` → trigger `post_move` → workflow → 1 emit. Caso particolare: se il move è cross-section, `moveNode` chiama internamente `assignSectionToSubTree` ma NON innesca `post_updatesection` (è una chiamata diretta, non via operation handler). Quindi un solo emit anche nel caso cross-section.
+- **Restore da cestino via UI** → `kernel/content/restore.php` con `AddLocation` action → `eZOperationHandler::execute('content','addlocation',...)` → trigger `post_addlocation` → workflow → 1 emit. ATTENZIONE: anche un AddLocation manuale (admin → aggiungere posizione a un oggetto pubblicato) passa di qui ed emette — è il comportamento corretto, l'oggetto guadagna visibilità in una nuova area.
+- **Trash (soft delete)** → `eZOperationHandler::execute('content','delete',...)` con `move_to_trash=1` → trigger `pre_delete` → `DeleteWorkflowWebHookType` → 1 emit con identifier `delete_ocopendata`. Identifier diverso dagli altri eventi di visibilità — il consumer lo gestisce già.
 
-In tutti i casi: **1 emit per operazione** (o N+1 per `post_hide` di un subtree con N figli). La separazione regge perché i path cron di OpenPA bypassano l'operation handler, e ogni operation handler scatta un solo trigger di visibilità.
+In tutti i casi: **1 emit per operazione** (o N+1 per `post_hide` di un subtree con N figli). La separazione regge perché i path cron di OpenPA bypassano l'operation handler, e ogni operation handler innesca un solo trigger di visibilità.
 
-**Diff rispetto alla design memory `design-publish-unpublish-events.md`:**
+**Differenze rispetto alla memoria di design `design-publish-unpublish-events.md`:**
 
-- ✗ **Modello a 5 ce_type** (`.created/.updated/.unpublished/.published/.deleted`) — abbandonato in questo piano. Singolo trigger `post_publish_ocopendata` con `metadata.isPublic`; il consumer fa diff per derivare le transizioni se gli serve.
-- ✗ **"Nessun evento se contenuto modificato mentre non è pubblico"** — abbandonato. Emettiamo sempre con `isPublic: false`; il filtraggio è demandato al consumer.
+- ✗ **Modello a 5 `ce_type`** (`.created/.updated/.unpublished/.published/.deleted`) — abbandonato in questo piano. Singolo trigger `post_publish_ocopendata` con `metadata.isPublic`; il consumer fa diff per derivare le transizioni se gli servono.
+- ✗ **"Nessun evento se il contenuto viene modificato mentre non è pubblico"** — abbandonato. Emettiamo sempre con `isPublic: false`; il filtraggio è demandato al consumer.
 - ✗ **Piano B (index plugin Solr via INI)** — rifiutato esplicitamente per non legare l'emissione Kafka al motore Solr (vedi header del piano). Se in futuro Solr verrà sostituito o disattivato, gli eventi continuano a funzionare grazie a operation handler + ezpEvent. Specifica tecnica del Piano B conservata in `piano-b-solr-index-plugin.md` accanto a questo file.
 - ✓ **Decisione `checkAccess` come fonte di verità per `isPublic`** — mantenuta.
