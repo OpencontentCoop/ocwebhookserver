@@ -84,12 +84,18 @@ class OCWebHookPusher
                     }
 
                     $retryCount = (int)OCWebHookFailure::count(OCWebHookFailure::definition(), ['job_id' => $jobId]);
-                    $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
-                    $sent = $kafkaProducer->produce(
-                        $job->attribute('trigger_identifier'),
-                        $payload,
-                        $retryCount
-                    );
+                    try {
+                        $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
+                        $sent = $kafkaProducer->produce(
+                            $job->attribute('trigger_identifier'),
+                            $payload,
+                            $retryCount
+                        );
+                    } catch (\Throwable $e) {
+                        $sent = false;
+                        $kafkaError = $e->getMessage();
+                        eZLog::write('OCWebHookPusher Kafka error: ' . $kafkaError, 'error.log');
+                    }
 
                     $job = OCWebHookJob::fetch($jobId);
                     $job->setAttribute('executed_at', time());
@@ -104,7 +110,7 @@ class OCWebHookPusher
                         $job->setAttribute('execution_status', OCWebHookJob::STATUS_FAILED);
                         $job->setAttribute('response_headers', json_encode([
                             'endpoint' => $endpoint,
-                            'error' => 'Kafka produce failed',
+                            'error' => isset($kafkaError) ? $kafkaError : 'Kafka produce failed',
                         ]));
                         ezpEvent::getInstance()->notify('webhook/job/fail', [$job->attribute('id')]);
                     }
