@@ -96,6 +96,12 @@ class OCWebHookKafkaFieldMap
             'percorso_univoco' => 'unique_path',
         ],
 
+        // ── itinerary (Itinerari) ─────────────────────────────────────────────────────
+        'itinerary' => [
+            'itinerary_types'        => 'types',
+            'itinerary_difficulties' => 'difficulties',
+        ],
+
         // ── audio ─────────────────────────────────────────────────────────────
         'audio' => [
             'sottotitolo' => 'subtitle',

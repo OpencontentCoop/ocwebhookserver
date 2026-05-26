@@ -126,6 +126,13 @@ assert_eq($insightMap['dead_line'],  'deadline_date',  'insight: dead_line → d
 
 assert_eq(OCWebHookKafkaFieldMap::getMap('howto'), [], 'howto has no renames (all fields already canonical)');
 
+// ── TEST 11: itinerary — rimozione prefisso ridondante ───────────────────────────────────
+
+$itineraryMap = OCWebHookKafkaFieldMap::getMap('itinerary');
+assert_eq($itineraryMap['itinerary_types'],        'types',        'itinerary: itinerary_types → types');
+assert_eq($itineraryMap['itinerary_difficulties'], 'difficulties', 'itinerary: itinerary_difficulties → difficulties');
+assert_true(count($itineraryMap) === 2,                            'itinerary map has exactly 2 entries');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";
