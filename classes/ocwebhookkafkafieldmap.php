@@ -133,7 +133,7 @@ class OCWebHookKafkaFieldMap
         ],
 
         // Content types with no renames: public_service, faq, faq_section,
-        // image, chart, banner, offer, output — all fields already canonical.
+        // image, chart, banner, offer, output, howto — all fields already canonical.
     ];
 
     /**

@@ -122,6 +122,10 @@ $insightMap = OCWebHookKafkaFieldMap::getMap('insight');
 assert_eq($insightMap['published'],  'published_date', 'insight: published → published_date (via article alias)');
 assert_eq($insightMap['dead_line'],  'deadline_date',  'insight: dead_line → deadline_date (via article alias)');
 
+// ── TEST 10: howto ha nessuna rename (tutti i campi già canonici) ─────────────
+
+assert_eq(OCWebHookKafkaFieldMap::getMap('howto'), [], 'howto has no renames (all fields already canonical)');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";
