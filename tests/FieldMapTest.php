@@ -148,6 +148,14 @@ assert_eq($ptMap['aggiornamento'],                'update_frequency',       'pt:
 assert_eq($ptMap['termine_pubblicazione'],        'publication_end',        'pt: termine_pubblicazione → publication_end');
 assert_true(count($ptMap) === 10,                                            'pagina_trasparenza map has exactly 10 entries');
 
+// ── TEST 13: public_project ───────────────────────────────────────────────────
+
+$ppMap = OCWebHookKafkaFieldMap::getMap('public_project');
+assert_eq($ppMap['published'],        'published_date', 'public_project: published → published_date (ezdate)');
+assert_eq($ppMap['has_status'],       'status',         'public_project: has_status (eztags scalar) → status');
+assert_eq($ppMap['has_status_notes'], 'status_notes',   'public_project: has_status_notes (ezxmltext scalar) → status_notes');
+assert_true(count($ppMap) === 3,                         'public_project map has exactly 3 entries');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";

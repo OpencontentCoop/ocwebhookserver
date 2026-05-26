@@ -116,6 +116,13 @@ class OCWebHookKafkaFieldMap
             'termine_pubblicazione'        => 'publication_end',
         ],
 
+        // ── public_project (Progetti) ─────────────────────────────────────────────
+        'public_project' => [
+            'published'        => 'published_date',
+            'has_status'       => 'status',
+            'has_status_notes' => 'status_notes',
+        ],
+
         // ── audio ─────────────────────────────────────────────────────────────
         'audio' => [
             'sottotitolo' => 'subtitle',
