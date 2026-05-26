@@ -89,7 +89,7 @@ Tutti i campi sono in italiano. Fonte: `modules/trasparenza/classes/pagina_trasp
 | `aggiornamento` | ezselection | `update_frequency` | Italiano |
 | `termine_pubblicazione` | ezselection | `publication_end` | Italiano |
 
-Campi passati through invariati: `fields` (regola interna Opencontent), `fields_blocks` (ezpage).
+Tutti gli altri campi (`fields`, `fields_blocks`) hanno già identificatori in inglese — nessuna rename necessaria, passano attraverso invariati come qualsiasi campo non mappato.
 
 ### 5. `public_project` (Progetto) — 3 renames
 
