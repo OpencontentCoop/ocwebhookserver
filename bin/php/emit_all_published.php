@@ -149,9 +149,13 @@ foreach ($rows as $i => $row) {
         $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
         $mainNode = $object->mainNode();
-        $payload['metadata']['isPublic'] = ($mainNode instanceof eZContentObjectTreeNode)
-            ? (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId())
-            : false;
+        if ($mainNode instanceof eZContentObjectTreeNode) {
+            $urlAlias = $mainNode->urlAlias();
+            $payload['metadata']['contentUrl'] = rtrim($payload['metadata']['baseUrl'], '/') . '/' . ltrim($urlAlias, '/');
+            $payload['metadata']['isPublic'] = (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
+        } else {
+            $payload['metadata']['isPublic'] = false;
+        }
 
         $classId = $object->attribute('class_identifier');
         $name    = $object->attribute('name');
