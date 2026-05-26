@@ -111,6 +111,17 @@ assert_eq(
     'image_with_related resolves to image map (empty — no renames)'
 );
 
+// ── TEST 9: insight risolve la mappa di article via variantAlias ─────────────
+
+assert_eq(
+    OCWebHookKafkaFieldMap::getMap('insight'),
+    OCWebHookKafkaFieldMap::getMap('article'),
+    'insight resolves to article map via variantAlias'
+);
+$insightMap = OCWebHookKafkaFieldMap::getMap('insight');
+assert_eq($insightMap['published'],  'published_date', 'insight: published → published_date (via article alias)');
+assert_eq($insightMap['dead_line'],  'deadline_date',  'insight: dead_line → deadline_date (via article alias)');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";

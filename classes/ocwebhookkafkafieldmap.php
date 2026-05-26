@@ -143,6 +143,7 @@ class OCWebHookKafkaFieldMap
     private static $variantAliases = [
         'article_with_projects'                    => 'article',
         'event_with_related'                       => 'event',
+        'insight'                                  => 'article',
         'organization_with_related'                => 'organization',
         'private_organization'                     => 'organization',
         'image_with_related'                       => 'image',
