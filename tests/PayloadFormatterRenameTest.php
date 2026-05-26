@@ -164,6 +164,61 @@ $data5   = $result5['entity']['data']['it-IT'];
 assert_eq($data5['published_date'], '2026-03-01',           'article_with_projects: published renamed via variant alias');
 assert_eq($data5['title'],          'Notizia con progetti', 'article_with_projects: title unchanged');
 
+// ── TEST 6: pagina_trasparenza — tutte le rename applicate end-to-end ─────────
+
+$ptPayload = [
+    'metadata' => [
+        'id'              => '100',
+        'classIdentifier' => 'pagina_trasparenza',
+        'languages'       => ['it-IT'],
+        'name'            => ['it-IT' => 'Pubblicazione degli atti'],
+    ],
+    'data' => [
+        'it-IT' => [
+            'titolo'                       => ['content' => 'Pubblicazione degli atti'],
+            'contenuto_obbligo'            => ['content' => '<p>Testo obbligo</p>'],
+            'riferimenti_normativi'        => ['content' => 'Art. 23 D.Lgs. 33/2013'],
+            'applicabilita'                => ['content' => '<p>Applicabile</p>'],
+            'denominazione_degli_obblighi' => ['content' => '<p>Denominazione</p>'],
+            'guida_alla_compilazione'      => ['content' => '<p>Guida</p>'],
+            'messaggio_di_consiglio'       => ['content' => '<p>Consiglio</p>'],
+            'decorrenza_di_pubblicazione'  => ['content' => 'Immediata'],
+            'aggiornamento'                => ['content' => 'Annuale'],
+            'termine_pubblicazione'        => ['content' => 'Non specificato'],
+            'fields'                       => ['content' => 'document!name,abstract'],
+        ],
+    ],
+];
+
+$formatter6 = new OCWebHookKafkaPayloadFormatter('frontend', 'opencity');
+$result6    = $formatter6->format($ptPayload);
+$data6      = $result6['entity']['data']['it-IT'];
+
+// Campi rinominati presenti con nome canonico
+assert_eq($data6['title'],                  'Pubblicazione degli atti',   'pt: titolo → title');
+assert_eq($data6['obligation_content'],     '<p>Testo obbligo</p>',       'pt: contenuto_obbligo → obligation_content');
+assert_eq($data6['legislative_references'], 'Art. 23 D.Lgs. 33/2013',    'pt: riferimenti_normativi → legislative_references');
+assert_eq($data6['applicability'],          '<p>Applicabile</p>',         'pt: applicabilita → applicability');
+assert_eq($data6['obligation_name'],        '<p>Denominazione</p>',       'pt: denominazione_degli_obblighi → obligation_name');
+assert_eq($data6['compilation_guide'],      '<p>Guida</p>',               'pt: guida_alla_compilazione → compilation_guide');
+assert_eq($data6['advice_message'],         '<p>Consiglio</p>',           'pt: messaggio_di_consiglio → advice_message');
+assert_eq($data6['publication_start'],      'Immediata',                  'pt: decorrenza_di_pubblicazione → publication_start');
+assert_eq($data6['update_frequency'],       'Annuale',                    'pt: aggiornamento → update_frequency');
+assert_eq($data6['publication_end'],        'Non specificato',            'pt: termine_pubblicazione → publication_end');
+assert_eq($data6['fields'],                 'document!name,abstract',     'pt: fields passa through invariato (già inglese)');
+
+// Campi originali italiani non presenti
+assert_true(!array_key_exists('titolo',                       $data6), 'pt: titolo rimosso');
+assert_true(!array_key_exists('contenuto_obbligo',            $data6), 'pt: contenuto_obbligo rimosso');
+assert_true(!array_key_exists('riferimenti_normativi',        $data6), 'pt: riferimenti_normativi rimosso');
+assert_true(!array_key_exists('applicabilita',                $data6), 'pt: applicabilita rimosso');
+assert_true(!array_key_exists('denominazione_degli_obblighi', $data6), 'pt: denominazione_degli_obblighi rimosso');
+assert_true(!array_key_exists('guida_alla_compilazione',      $data6), 'pt: guida_alla_compilazione rimosso');
+assert_true(!array_key_exists('messaggio_di_consiglio',       $data6), 'pt: messaggio_di_consiglio rimosso');
+assert_true(!array_key_exists('decorrenza_di_pubblicazione',  $data6), 'pt: decorrenza_di_pubblicazione rimosso');
+assert_true(!array_key_exists('aggiornamento',                $data6), 'pt: aggiornamento rimosso');
+assert_true(!array_key_exists('termine_pubblicazione',        $data6), 'pt: termine_pubblicazione rimosso');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";
