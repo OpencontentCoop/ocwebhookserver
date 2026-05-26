@@ -63,6 +63,7 @@ I messaggi Kafka seguono il formato CloudEvents 1.0 con header:
 | `oc_app_name` | `OpenCity CMS` | Configurabile |
 | `oc_app_version` | `1.2.3` | Letto da `Composer\InstalledVersions` se non configurato |
 | `oc_operation` | `created` | Operazione: `created` / `updated` / `deleted` |
+| `oc_is_custom` | `true` | Presente solo se `IsOpenCityFork=true` in `openpa.ini [CreditsSettings]`. Segnala istanze con struttura dati diversa da OpenCity standard (es. BIM). |
 
 ### Payload (corpo del messaggio)
 
