@@ -148,6 +148,15 @@ foreach ($rows as $i => $row) {
         $payload['metadata']['baseUrl']        = eZSys::serverURL();
         $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
+        $mainNode = $object->mainNode();
+        if ($mainNode instanceof eZContentObjectTreeNode) {
+            $urlAlias = $mainNode->urlAlias();
+            $payload['metadata']['contentUrl'] = rtrim($payload['metadata']['baseUrl'], '/') . '/' . ltrim($urlAlias, '/');
+            $payload['metadata']['isPublic'] = (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
+        } else {
+            $payload['metadata']['isPublic'] = false;
+        }
+
         $classId = $object->attribute('class_identifier');
         $name    = $object->attribute('name');
 

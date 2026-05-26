@@ -21,6 +21,7 @@
  *   metadata.modifiedBy      → entity.meta.modified_by  ({id, login, name} of current-version author)
  *   metadata.published       → entity.meta.published_at (ISO 8601)
  *   metadata.modified        → entity.meta.updated_at   (ISO 8601)
+ *   metadata.isPublic        → entity.meta.is_public    (bool, null when absent)
  *   data.<lang>.<attr>.content → entity.data.<lang>.<attr>  (ISO 8601 date strings normalised to UTC)
  */
 require_once dirname(__FILE__) . '/ocwebhookkafkafieldmap.php';
@@ -85,12 +86,18 @@ class OCWebHookKafkaPayloadFormatter
             'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
             'content_url'  => isset($metadata['contentUrl'])        ? $metadata['contentUrl']        : null,
             'api_url'      => isset($metadata['apiUrl'])            ? $metadata['apiUrl']            : null,
-            'created_by'   => isset($metadata['createdBy'])        ? $metadata['createdBy']         : null,
-            'modified_by'  => isset($metadata['modifiedBy'])       ? $metadata['modifiedBy']        : null,
+            'created_by'     => isset($metadata['createdBy'])          ? $metadata['createdBy']           : null,
+            'modified_by'    => isset($metadata['modifiedBy'])         ? $metadata['modifiedBy']          : null,
+            'tree_placement' => isset($metadata['mainParentRemoteId']) ? [
+                'main_parent_remote_id' => $metadata['mainParentRemoteId'],
+                'parent_remote_ids'     => isset($metadata['parentRemoteIds'])
+                    ? array_values((array)$metadata['parentRemoteIds']) : [],
+            ] : null,
             'published_at' => isset($metadata['published']) && $metadata['published'] !== null
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
             'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
                                 ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['modified']))  : null,
+            'is_public'    => isset($metadata['isPublic']) ? (bool)$metadata['isPublic'] : null,
         ];
 
         // Flatten attribute values per language: extract the "content" field from each attribute.
@@ -108,9 +115,19 @@ class OCWebHookKafkaPayloadFormatter
                     if ($content === null && is_array($attrValue) && array_key_exists('content', $attrValue)) {
                         $content = [];
                     }
-                    // Normalize camelCase keys in relation item lists
+                    // Normalize item lists: route to the correct normalizer by item structure
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
-                        $content = array_map(['OCWebHookKafkaPayloadFormatter', 'normalizeRelationItem'], $content);
+                        $instanceId = $this->instanceId;
+                        $siteUrl    = $meta['site_url'];
+                        $content = array_map(
+                            function ($item) use ($instanceId, $siteUrl) {
+                                if (isset($item['classIdentifier']) || isset($item['class_identifier'])) {
+                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId);
+                                }
+                                return OCWebHookKafkaPayloadFormatter::normalizeTaxonomyItem($item, $siteUrl);
+                            },
+                            $content
+                        );
                     }
                     // Resolve multi-language maps to the current language (e.g. relation item "name" fields)
                     $content = self::resolveForLanguage($content, $lang);
@@ -196,6 +213,56 @@ class OCWebHookKafkaPayloadFormatter
     }
 
     /**
+     * Normalize a vocabulary/taxonomy item (eztags, enum vocabulary types).
+     * Detection: item has no 'classIdentifier'/'class_identifier' and no 'filename'/'mime_type'.
+     *
+     * Output: {id, title, priority, [code,] taxonomy: {id, api_url}}
+     *
+     * taxonomy is built from:
+     *   1. $item['taxonomy']      — already present (pass-through)
+     *   2. $item['vocabulary_id'] — e.g. "vocabulary_licenses" → constructs api_url from $siteUrl
+     *
+     * @param array       $item
+     * @param string|null $siteUrl  e.g. "https://www.comune.example.it"
+     * @return array
+     */
+    private static function normalizeTaxonomyItem(array $item, $siteUrl = null)
+    {
+        $result = [
+            'id'    => isset($item['id']) ? $item['id'] : null,
+            'title' => isset($item['name']) ? $item['name'] : null,
+        ];
+
+        if (isset($item['priority'])) {
+            $result['priority'] = (int)$item['priority'];
+        }
+
+        static $skip = ['id' => true, 'name' => true, 'priority' => true,
+                        'taxonomy' => true, 'vocabulary_id' => true,
+                        'languages' => true, 'link' => true, 'class' => true];
+        foreach ($item as $key => $value) {
+            if (!isset($skip[$key])) {
+                $result[$key] = $value;
+            }
+        }
+
+        if (isset($item['taxonomy'])) {
+            $result['taxonomy'] = $item['taxonomy'];
+        } elseif (isset($item['vocabulary_id']) && $siteUrl !== null) {
+            $vocId   = $item['vocabulary_id'];
+            $vocSlug = str_replace('_', '-', str_replace('vocabulary_', '', $vocId));
+            $result['taxonomy'] = [
+                'id'      => $vocId,
+                'api_url' => rtrim($siteUrl, '/') . '/api/openapi/vocabularies/' . $vocSlug,
+            ];
+        } else {
+            $result['taxonomy'] = null;
+        }
+
+        return $result;
+    }
+
+    /**
      * Recursively convert ISO 8601 datetime strings (with any timezone) to UTC.
      * Strings matching YYYY-MM-DDTHH:MM:SS... are normalised to YYYY-MM-DDTHH:MM:SSZ.
      * Arrays are traversed recursively; all other types pass through unchanged.
@@ -220,34 +287,45 @@ class OCWebHookKafkaPayloadFormatter
     }
 
     /**
-     * Normalize a relation item coming from ocopendata:
-     * - rename camelCase keys to snake_case
-     * - drop fields that are redundant or internal to eZ Publish
+     * Normalize a relation item coming from ocopendata.
      *
-     * Kept fields: id, remote_id, class_identifier, name, main_node_id
-     * Dropped:
-     *   - "class"     exact duplicate of class_identifier
-     *   - "languages" redundant once "name" is resolved to a single language
-     *   - "link"      internal eZ path like "read/121", not useful for consumers
+     * Output: {type_id, id: "instanceId:objectId", object_id, remote_id, title, [api_url, priority, ...]}
+     * Dropped: class, classIdentifier, class_identifier, languages, link, mainNodeId, main_node_id, name
      *
-     * @param array $item
+     * @param array  $item
+     * @param string $instanceId  e.g. "bugliano" — prefixed to object id
      * @return array
      */
-    private static function normalizeRelationItem(array $item)
+    private static function normalizeRelationItem(array $item, $instanceId = '')
     {
-        static $renames = [
-            'remoteId'        => 'remote_id',
-            'classIdentifier' => 'class_identifier',
-            'mainNodeId'      => 'main_node_id',
+        $classId  = isset($item['classIdentifier'])  ? $item['classIdentifier']
+                  : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
+        $rawId    = isset($item['id'])               ? $item['id']       : null;
+        $remoteId = isset($item['remoteId'])         ? $item['remoteId']
+                  : (isset($item['remote_id'])        ? $item['remote_id'] : null);
+        $title    = isset($item['name'])             ? $item['name']     : null;
+
+        $result = [
+            'type_id'   => $classId,
+            'id'        => $instanceId . ':' . $rawId,
+            'object_id' => $rawId !== null ? (string)$rawId : null,
+            'remote_id' => $remoteId,
+            'title'     => $title,
         ];
-        static $drop = ['class' => true, 'languages' => true, 'link' => true];
-        $result = [];
+
+        static $skip = [
+            'id' => true, 'name' => true,
+            'remoteId' => true, 'remote_id' => true,
+            'classIdentifier' => true, 'class_identifier' => true,
+            'mainNodeId' => true, 'main_node_id' => true,
+            'class' => true, 'languages' => true, 'link' => true,
+        ];
         foreach ($item as $key => $value) {
-            if (isset($drop[$key])) {
-                continue;
+            if (!isset($skip[$key])) {
+                $result[$key] = $value;
             }
-            $result[isset($renames[$key]) ? $renames[$key] : $key] = $value;
         }
+
         return $result;
     }
 }

@@ -278,26 +278,38 @@ assert_null($data4['subtitle'], 'Null grezzo (non content-wrapped) preservato co
 assert_eq($data4['title'],  'Titolo', 'Campo testo estratto correttamente');
 
 assert_eq(count($data4['attachments']), 2, 'Relation list: 2 item preservati');
-assert_eq($data4['attachments'][0]['remote_id'],       'file-abc-123', 'remoteId → remote_id normalizzato');
-assert_eq($data4['attachments'][0]['class_identifier'], 'file',        'classIdentifier → class_identifier normalizzato');
-assert_eq($data4['attachments'][0]['main_node_id'],    '210',          'mainNodeId → main_node_id normalizzato');
-assert_eq($data4['attachments'][0]['name'],            'Relazione annuale.pdf', 'Campo senza rename preservato');
-assert_false(isset($data4['attachments'][0]['remoteId']),       'remoteId camelCase rimosso dopo normalizzazione');
-assert_false(isset($data4['attachments'][0]['classIdentifier']),'classIdentifier camelCase rimosso dopo normalizzazione');
-assert_false(isset($data4['attachments'][0]['mainNodeId']),     'mainNodeId camelCase rimosso dopo normalizzazione');
-assert_false(isset($data4['attachments'][0]['class']),          '"class" eliminato (duplicato di class_identifier)');
-assert_false(isset($data4['attachments'][0]['languages']),      '"languages" eliminato (ridondante)');
-assert_false(isset($data4['attachments'][0]['link']),           '"link" eliminato (path interno eZ)');
-assert_eq($data4['attachments'][1]['remote_id'], 'file-def-456', 'Secondo item: remote_id normalizzato');
-assert_eq($data4['attachments'][0]['content_url'], 'https://www.comune.example.it/allegati/relazione-annuale',
-    'content_url in relation item preservato (pass-through)');
 
-assert_eq($data4['topics'][0]['remote_id'],       'topic-xyz', 'snake_case remote_id pass-through');
-assert_eq($data4['topics'][0]['class_identifier'], 'tag',      'snake_case class_identifier pass-through');
-assert_eq($data4['topics'][0]['main_node_id'],    '501',       'snake_case main_node_id pass-through');
-assert_false(isset($data4['topics'][0]['class']),     'topics: "class" eliminato');
-assert_false(isset($data4['topics'][0]['languages']), 'topics: "languages" eliminato');
-assert_false(isset($data4['topics'][0]['link']),      'topics: "link" eliminato');
+$att0 = $data4['attachments'][0];
+assert_eq($att0['type_id'],   'file',         'classIdentifier → type_id');
+assert_eq($att0['id'],        'bugliano:1',   'id = instanceId:objectId (compound)');
+assert_eq($att0['object_id'], '1',            'object_id = string del id originale');
+assert_eq($att0['remote_id'], 'file-abc-123', 'remoteId → remote_id');
+assert_eq($att0['title'],     'Relazione annuale.pdf', 'name → title');
+assert_eq($att0['content_url'], 'https://www.comune.example.it/allegati/relazione-annuale',
+    'content_url pass-through');
+
+assert_false(isset($att0['name']),            'name rimosso (rinominato title)');
+assert_false(isset($att0['class_identifier']),'class_identifier rimosso (rinominato type_id)');
+assert_false(isset($att0['classIdentifier']), 'classIdentifier camelCase rimosso');
+assert_false(isset($att0['main_node_id']),    'main_node_id rimosso');
+assert_false(isset($att0['mainNodeId']),      'mainNodeId camelCase rimosso');
+assert_false(isset($att0['class']),           '"class" eliminato');
+assert_false(isset($att0['languages']),       '"languages" eliminato');
+assert_false(isset($att0['link']),            '"link" eliminato');
+
+assert_eq($data4['attachments'][1]['id'],        'bugliano:2',   'Secondo item: id compound');
+assert_eq($data4['attachments'][1]['remote_id'], 'file-def-456', 'Secondo item: remote_id');
+
+$top0 = $data4['topics'][0];
+assert_eq($top0['type_id'],   'tag',           'topics: class_identifier → type_id');
+assert_eq($top0['id'],        'bugliano:101',  'topics: id compound');
+assert_eq($top0['object_id'], '101',           'topics: object_id');
+assert_eq($top0['remote_id'], 'topic-xyz',     'topics: remote_id pass-through');
+assert_false(isset($top0['class_identifier']), 'topics: class_identifier rimosso');
+assert_false(isset($top0['main_node_id']),     'topics: main_node_id rimosso');
+assert_false(isset($top0['class']),            'topics: "class" eliminato');
+assert_false(isset($top0['languages']),        'topics: "languages" eliminato');
+assert_false(isset($top0['link']),             'topics: "link" eliminato');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 8: ISO 8601 date strings (real ocopendata format uses date('c'))
@@ -459,26 +471,26 @@ $payloadMultilang = [
 $formatterML = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
 $resultML    = $formatterML->format($payloadMultilang);
 
-// eng-GB section: name resolved to English
+// eng-GB section: title resolved to English
 assert_eq(
-    $resultML['entity']['data']['eng-GB']['topics'][0]['name'],
+    $resultML['entity']['data']['eng-GB']['topics'][0]['title'],
     'Innovation',
-    'Relation item name resolved to eng-GB in eng-GB section'
+    'Relation item title resolved to eng-GB in eng-GB section'
 );
-// ita-IT section: name resolved to Italian
+// ita-IT section: title resolved to Italian
 assert_eq(
-    $resultML['entity']['data']['ita-IT']['topics'][0]['name'],
+    $resultML['entity']['data']['ita-IT']['topics'][0]['title'],
     'Innovazione',
-    'Relation item name resolved to ita-IT in ita-IT section'
+    'Relation item title resolved to ita-IT in ita-IT section'
 );
 // "languages" inside relation item is dropped by normalizeRelationItem
 assert_false(
     isset($resultML['entity']['data']['eng-GB']['topics'][0]['languages']),
     '"languages" dropped from relation items by normalizeRelationItem'
 );
-// Fallback: name only in ita-IT, requested lang is eng-GB → returns ita-IT value
+// Fallback: title only in ita-IT, requested lang is eng-GB → returns ita-IT value
 assert_eq(
-    $resultML['entity']['data']['eng-GB']['author'][0]['name'],
+    $resultML['entity']['data']['eng-GB']['author'][0]['title'],
     'Ufficio anagrafe',
     'Multi-lang map with missing eng-GB falls back to first available language'
 );
@@ -536,6 +548,127 @@ assert_eq(
     gmdate('Y-m-d\TH:i:s\Z', strtotime('2025-12-01T08:00:00+01:00')),
     'Date inside nested relation item also normalised to UTC'
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 14: normalizeTaxonomyItem — vocabulary items
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadTaxonomy = [
+    'metadata' => [
+        'id' => '300', 'classIdentifier' => 'document', 'languages' => ['it-IT'],
+        'baseUrl' => 'https://www.comune.example.it',
+    ],
+    'data' => [
+        'it-IT' => [
+            // taxonomy item con vocabulary_id (ocopendata lo fornisce)
+            'licenses' => ['content' => [
+                ['id' => 'open_license', 'name' => ['it-IT' => 'Licenza aperta'], 'priority' => 1,
+                 'vocabulary_id' => 'vocabulary_licenses'],
+            ], 'type' => 'eztags'],
+            // taxonomy item con taxonomy già presente (pass-through)
+            'formats' => ['content' => [
+                ['id' => 'pdf', 'name' => ['it-IT' => 'PDF'], 'priority' => 1,
+                 'taxonomy' => ['id' => 'vocabulary_formats',
+                                'api_url' => 'https://www.comune.example.it/api/openapi/vocabularies/formats']],
+            ], 'type' => 'eztags'],
+            // taxonomy item con code extra (es. spatial_coverage)
+            'has_spatial_coverage' => ['content' => [
+                ['id' => '069001', 'code' => '069001', 'name' => ['it-IT' => 'Altino'], 'priority' => 1,
+                 'vocabulary_id' => 'vocabulary_spatial_coverage'],
+            ], 'type' => 'eztags'],
+        ],
+    ],
+];
+
+$fmTax   = new OCWebHookKafkaPayloadFormatter('frontend', 'opencity');
+$resTax  = $fmTax->format($payloadTaxonomy);
+$dataTax = $resTax['entity']['data']['it-IT'];
+
+// licenses: vocabulary_id present → taxonomy constructed
+$lic = $dataTax['licenses'][0];
+assert_eq($lic['id'],    'open_license',  'taxonomy item: id preserved');
+assert_eq($lic['title'], 'Licenza aperta', 'taxonomy item: name→title resolved');
+assert_eq((int)$lic['priority'], 1,       'taxonomy item: priority');
+assert_eq($lic['taxonomy']['id'], 'vocabulary_licenses', 'taxonomy.id from vocabulary_id');
+assert_eq(
+    $lic['taxonomy']['api_url'],
+    'https://www.comune.example.it/api/openapi/vocabularies/licenses',
+    'taxonomy.api_url derived from site_url + vocabulary_id'
+);
+assert_false(isset($lic['name']),          'name removed from taxonomy item');
+assert_false(isset($lic['vocabulary_id']), 'vocabulary_id removed after building taxonomy');
+
+// formats: taxonomy already present → pass-through unchanged
+$fmt = $dataTax['formats'][0];
+assert_eq($fmt['taxonomy']['id'],      'vocabulary_formats', 'taxonomy pass-through: id');
+assert_eq($fmt['taxonomy']['api_url'], 'https://www.comune.example.it/api/openapi/vocabularies/formats',
+    'taxonomy pass-through: api_url');
+
+// has_spatial_coverage: extra "code" field preserved
+$spa = $dataTax['has_spatial_coverage'][0];
+assert_eq($spa['id'],   '069001',  'spatial_coverage: id');
+assert_eq($spa['code'], '069001',  'spatial_coverage: code extra field preserved');
+assert_eq($spa['title'], 'Altino', 'spatial_coverage: title');
+assert_eq($spa['taxonomy']['id'], 'vocabulary_spatial_coverage', 'spatial_coverage: taxonomy.id');
+assert_eq(
+    $spa['taxonomy']['api_url'],
+    'https://www.comune.example.it/api/openapi/vocabularies/spatial-coverage',
+    'spatial_coverage: taxonomy.api_url (underscore→hyphen in URL)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 15: entity.meta.tree_placement
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadTP = [
+    'metadata' => [
+        'id'                 => '500',
+        'languages'          => ['it-IT'],
+        'name'               => ['it-IT' => 'Test'],
+        'mainParentRemoteId' => 'trasparenza',
+        'parentRemoteIds'    => ['trasparenza', 'servizi'],
+    ],
+    'data' => [],
+];
+$fmTP  = new OCWebHookKafkaPayloadFormatter('frontend', 'opencity');
+$resTP = $fmTP->format($payloadTP);
+$metaTP = $resTP['entity']['meta'];
+
+assert_eq(
+    $metaTP['tree_placement'],
+    ['main_parent_remote_id' => 'trasparenza', 'parent_remote_ids' => ['trasparenza', 'servizi']],
+    'tree_placement built from mainParentRemoteId + parentRemoteIds'
+);
+
+// null when mainParentRemoteId absent
+$payloadNoTP = [
+    'metadata' => ['id' => '501', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X']],
+    'data' => [],
+];
+$resNoTP = $fmTP->format($payloadNoTP);
+assert_null($resNoTP['entity']['meta']['tree_placement'], 'tree_placement null when mainParentRemoteId absent');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 16: entity.meta.is_public mapped from metadata.isPublic
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadPublic = [
+    'metadata' => ['id' => '600', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X'], 'isPublic' => true],
+    'data' => [],
+];
+$payloadPrivate = [
+    'metadata' => ['id' => '601', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X'], 'isPublic' => false],
+    'data' => [],
+];
+$payloadNoPublic = [
+    'metadata' => ['id' => '602', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X']],
+    'data' => [],
+];
+
+$fmPub = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+assert_eq($fmPub->format($payloadPublic)['entity']['meta']['is_public'],  true,  'is_public true when isPublic=true');
+assert_eq($fmPub->format($payloadPrivate)['entity']['meta']['is_public'], false, 'is_public false when isPublic=false');
+assert_null($fmPub->format($payloadNoPublic)['entity']['meta']['is_public'], 'is_public null when isPublic absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Results
