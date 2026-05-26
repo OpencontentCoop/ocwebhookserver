@@ -469,28 +469,32 @@ assert_true(
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 9: produce() returns false when delivery callback reports an error
 //
-// Simula il caso reale: broker raggiungibile, flush() ritorna 0 (coda svuotata),
-// ma la consegna è fallita e il delivery callback ha segnalato l'errore.
+// Simula il caso: flush() ritorna 0 (coda svuotata) ma la consegna è fallita
+// e il delivery callback ha segnalato l'errore.
 // Senza il callback registrato, produce() avrebbe restituito true (silent failure).
 //
-// Meccanismo: MessageTimeoutMs=1 fa scadere il messaggio nella coda locale rdkafka
-// prima che il broker possa ackarlo → rdkafka chiama il callback con
-// ERR__MSG_TIMED_OUT → flush() ritorna 0 (coda vuota) → produce() deve false.
+// Meccanismo deterministico: broker irraggiungibile (127.0.0.1:19999) +
+// MessageTimeoutMs=500ms → il messaggio scade sempre dopo 500ms perché il
+// broker non risponde mai → rdkafka chiama il delivery callback con
+// ERR__MSG_TIMED_OUT → flush() ritorna 0 (coda vuota) → produce() ritorna false.
+//
+// Più affidabile di usare un broker reale con 1ms di timeout (race condition:
+// Redpanda può rispondere in < 1ms su connessioni calde).
 // ─────────────────────────────────────────────────────────────────────────────
 
-set_ini($BROKER, $TOPIC, 2000, [
+set_ini('127.0.0.1:19999', $TOPIC, 2000, [
     'KafkaSettings' => [
         'FlushTimeoutMs'   => '2000',
         'TenantId'         => 'test-tenant-uuid-1234',
         'ProductSlug'      => 'website',
         'AppName'          => 'website-comuni',
         'AppVersion'       => '1.5.0',
-        'MessageTimeoutMs' => '1',   // 1ms: scade prima che il broker possa ackare
+        'MessageTimeoutMs' => '500',  // 500ms: scade sempre perché il broker è irraggiungibile
     ],
 ]);
 eZDebug::reset();
 
-$producer9 = new OCWebHookKafkaProducer($BROKER, $TOPIC);
+$producer9 = new OCWebHookKafkaProducer('127.0.0.1:19999', $TOPIC);
 $result9   = $producer9->produce('post_publish', ['entity' => ['meta' => ['type_id' => 'article', 'version' => 1], 'data' => []]]);
 
 assert_false($result9, 'produce() returns false when delivery callback reports error (ERR__MSG_TIMED_OUT)');
