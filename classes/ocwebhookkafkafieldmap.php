@@ -102,6 +102,20 @@ class OCWebHookKafkaFieldMap
             'itinerary_difficulties' => 'difficulties',
         ],
 
+        // ── pagina_trasparenza (Pagine trasparenza) ───────────────────────────────
+        'pagina_trasparenza' => [
+            'titolo'                       => 'title',
+            'contenuto_obbligo'            => 'obligation_content',
+            'riferimenti_normativi'        => 'legislative_references',
+            'applicabilita'                => 'applicability',
+            'denominazione_degli_obblighi' => 'obligation_name',
+            'guida_alla_compilazione'      => 'compilation_guide',
+            'messaggio_di_consiglio'       => 'advice_message',
+            'decorrenza_di_pubblicazione'  => 'publication_start',
+            'aggiornamento'                => 'update_frequency',
+            'termine_pubblicazione'        => 'publication_end',
+        ],
+
         // ── audio ─────────────────────────────────────────────────────────────
         'audio' => [
             'sottotitolo' => 'subtitle',
