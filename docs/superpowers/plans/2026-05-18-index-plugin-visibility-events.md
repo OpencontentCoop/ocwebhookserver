@@ -2,6 +2,8 @@
 
 > **Per agentic worker:** sub-skill richiesta — usare superpowers:subagent-driven-development (consigliata) oppure superpowers:executing-plans per implementare questo piano task per task. Gli step usano la sintassi a checkbox (`- [ ]`) per il tracking.
 
+**Obiettivo:** emettere un evento Kafka ogni volta che cambia la visibilità di un contenuto (hide/show, cambio stato, cambio sezione, move, rimozione traduzione, restore da cestino), non solo alla pubblicazione di una nuova versione. Il consumer può così tenere sincronizzato un indice esterno o reagire ai cambi di accessibilità pubblica senza fare polling sul CMS.
+
 **Cosa fa questo piano:** registra trigger eZ Publish per le operazioni di cambio visibilità (`post_hide`, `post_updateobjectstate`, `post_updatesection`, `post_removetranslation`, `post_move`, `post_addlocation`) e un listener `ezpEvent` per i percorsi originati da cron. Ogni volta che uno di questi eventi si verifica, costruisce il payload ocopendata completo e lo emette su Kafka tramite l'outbox esistente. Non dipende da Solr.
 
 **Architettura:** tre meccanismi complementari coprono tutti i path di cambio visibilità:

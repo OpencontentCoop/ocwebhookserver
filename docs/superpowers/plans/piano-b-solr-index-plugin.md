@@ -3,6 +3,8 @@
 > **Stato:** non implementato. Conservato come fallback ripristinabile.
 > **Piano A in vigore:** [`2026-05-18-index-plugin-visibility-events.md`](./2026-05-18-index-plugin-visibility-events.md)
 
+**Obiettivo:** lo stesso del Piano A — emettere un evento Kafka ogni volta che cambia la visibilità di un contenuto — ma con un approccio alternativo: usare il layer di indicizzazione Solr come unico entry point invece di registrare hook puntuali per ogni operazione.
+
 **Cosa fa questo piano:** registra un `ezpIndexPlugin` custom (`OCWebHookIndexPlugin`) nell'estensione. `eZSolr::addObject()` invoca `modify(eZContentObject $object, array &$doc)` per ogni plugin registrato ogni volta che un oggetto viene re-indicizzato. Il plugin usa questa callback come unico entry point per costruire il payload e emetterlo su Kafka — senza modificare il documento Solr. Un solo hook copre automaticamente tutti i path che causano un re-index (hide, cambio stato, cambio sezione, move, restore, aggiornamento traduzione, ecc.).
 
 **Confronto con il Piano A:** il [Piano A](./2026-05-18-index-plugin-visibility-events.md) intercetta ogni operazione con hook puntuali (trigger eZ + listener `ezpEvent`) e non dipende da Solr. Il Piano B è più compatto — un file, nessun trigger da registrare nel DB — ma si spegne silenziosamente se Solr viene disattivato su un tenant. Per questo motivo il Piano B è in standby.
