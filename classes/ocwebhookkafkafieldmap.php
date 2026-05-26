@@ -96,6 +96,33 @@ class OCWebHookKafkaFieldMap
             'percorso_univoco' => 'unique_path',
         ],
 
+        // ── itinerary (Itinerari) ─────────────────────────────────────────────────────
+        'itinerary' => [
+            'itinerary_types'        => 'types',
+            'itinerary_difficulties' => 'difficulties',
+        ],
+
+        // ── pagina_trasparenza (Pagine trasparenza) ───────────────────────────────
+        'pagina_trasparenza' => [
+            'titolo'                       => 'title',
+            'contenuto_obbligo'            => 'obligation_content',
+            'riferimenti_normativi'        => 'legislative_references',
+            'applicabilita'                => 'applicability',
+            'denominazione_degli_obblighi' => 'obligation_name',
+            'guida_alla_compilazione'      => 'compilation_guide',
+            'messaggio_di_consiglio'       => 'advice_message',
+            'decorrenza_di_pubblicazione'  => 'publication_start',
+            'aggiornamento'                => 'update_frequency',
+            'termine_pubblicazione'        => 'publication_end',
+        ],
+
+        // ── public_project (Progetti) ─────────────────────────────────────────────
+        'public_project' => [
+            'published'        => 'published_date',
+            'has_status'       => 'status',
+            'has_status_notes' => 'status_notes',
+        ],
+
         // ── audio ─────────────────────────────────────────────────────────────
         'audio' => [
             'sottotitolo' => 'subtitle',
@@ -133,7 +160,7 @@ class OCWebHookKafkaFieldMap
         ],
 
         // Content types with no renames: public_service, faq, faq_section,
-        // image, chart, banner, offer, output — all fields already canonical.
+        // image, chart, banner, offer, output, howto — all fields already canonical.
     ];
 
     /**
@@ -143,6 +170,7 @@ class OCWebHookKafkaFieldMap
     private static $variantAliases = [
         'article_with_projects'                    => 'article',
         'event_with_related'                       => 'event',
+        'insight'                                  => 'article',
         'organization_with_related'                => 'organization',
         'private_organization'                     => 'organization',
         'image_with_related'                       => 'image',

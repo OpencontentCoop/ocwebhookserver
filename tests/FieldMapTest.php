@@ -111,6 +111,51 @@ assert_eq(
     'image_with_related resolves to image map (empty — no renames)'
 );
 
+// ── TEST 9: insight risolve la mappa di article via variantAlias ─────────────
+
+assert_eq(
+    OCWebHookKafkaFieldMap::getMap('insight'),
+    OCWebHookKafkaFieldMap::getMap('article'),
+    'insight resolves to article map via variantAlias'
+);
+$insightMap = OCWebHookKafkaFieldMap::getMap('insight');
+assert_eq($insightMap['published'],  'published_date', 'insight: published → published_date (via article alias)');
+assert_eq($insightMap['dead_line'],  'deadline_date',  'insight: dead_line → deadline_date (via article alias)');
+
+// ── TEST 10: howto ha nessuna rename (tutti i campi già canonici) ─────────────
+
+assert_eq(OCWebHookKafkaFieldMap::getMap('howto'), [], 'howto has no renames (all fields already canonical)');
+
+// ── TEST 11: itinerary — rimozione prefisso ridondante ───────────────────────────────────
+
+$itineraryMap = OCWebHookKafkaFieldMap::getMap('itinerary');
+assert_eq($itineraryMap['itinerary_types'],        'types',        'itinerary: itinerary_types → types');
+assert_eq($itineraryMap['itinerary_difficulties'], 'difficulties', 'itinerary: itinerary_difficulties → difficulties');
+assert_true(count($itineraryMap) === 2,                            'itinerary map has exactly 2 entries');
+
+// ── TEST 12: pagina_trasparenza — tutti i campi italiani rinominati ──────────
+
+$ptMap = OCWebHookKafkaFieldMap::getMap('pagina_trasparenza');
+assert_eq($ptMap['titolo'],                       'title',                  'pt: titolo → title');
+assert_eq($ptMap['contenuto_obbligo'],            'obligation_content',     'pt: contenuto_obbligo → obligation_content');
+assert_eq($ptMap['riferimenti_normativi'],        'legislative_references', 'pt: riferimenti_normativi → legislative_references');
+assert_eq($ptMap['applicabilita'],                'applicability',          'pt: applicabilita → applicability');
+assert_eq($ptMap['denominazione_degli_obblighi'], 'obligation_name',        'pt: denominazione_degli_obblighi → obligation_name');
+assert_eq($ptMap['guida_alla_compilazione'],      'compilation_guide',      'pt: guida_alla_compilazione → compilation_guide');
+assert_eq($ptMap['messaggio_di_consiglio'],       'advice_message',         'pt: messaggio_di_consiglio → advice_message');
+assert_eq($ptMap['decorrenza_di_pubblicazione'],  'publication_start',      'pt: decorrenza_di_pubblicazione → publication_start');
+assert_eq($ptMap['aggiornamento'],                'update_frequency',       'pt: aggiornamento → update_frequency');
+assert_eq($ptMap['termine_pubblicazione'],        'publication_end',        'pt: termine_pubblicazione → publication_end');
+assert_true(count($ptMap) === 10,                                            'pagina_trasparenza map has exactly 10 entries');
+
+// ── TEST 13: public_project ───────────────────────────────────────────────────
+
+$ppMap = OCWebHookKafkaFieldMap::getMap('public_project');
+assert_eq($ppMap['published'],        'published_date', 'public_project: published → published_date (ezdate)');
+assert_eq($ppMap['has_status'],       'status',         'public_project: has_status (eztags scalar) → status');
+assert_eq($ppMap['has_status_notes'], 'status_notes',   'public_project: has_status_notes (ezxmltext scalar) → status_notes');
+assert_true(count($ppMap) === 3,                         'public_project map has exactly 3 entries');
+
 // ── Results ───────────────────────────────────────────────────────────────────
 
 echo "\n";
