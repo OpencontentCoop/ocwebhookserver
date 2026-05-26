@@ -1,14 +1,18 @@
 # Piano B — Eventi di visibilità via index plugin Solr
 
 > **Stato:** non implementato. Conservato come fallback ripristinabile.
-> **Piano A in vigore:** [`2026-05-18-index-plugin-visibility-events.md`](./2026-05-18-index-plugin-visibility-events.md) — emissione ibrida via workflow su operation handler + `ezpEvent('openpa/object/flushed')`.
+> **Piano A in vigore:** [`2026-05-18-index-plugin-visibility-events.md`](./2026-05-18-index-plugin-visibility-events.md)
+
+**Cosa fa questo piano:** registra un `ezpIndexPlugin` custom (`OCWebHookIndexPlugin`) nell'estensione. `eZSolr::addObject()` invoca `modify(eZContentObject $object, array &$doc)` per ogni plugin registrato ogni volta che un oggetto viene re-indicizzato. Il plugin usa questa callback come unico entry point per costruire il payload e emetterlo su Kafka — senza modificare il documento Solr. Un solo hook copre automaticamente tutti i path che causano un re-index (hide, cambio stato, cambio sezione, move, restore, aggiornamento traduzione, ecc.).
+
+**Confronto con il Piano A:** il [Piano A](./2026-05-18-index-plugin-visibility-events.md) intercetta ogni operazione con hook puntuali (trigger eZ + listener `ezpEvent`) e non dipende da Solr. Il Piano B è più compatto — un file, nessun trigger da registrare nel DB — ma si spegne silenziosamente se Solr viene disattivato su un tenant. Per questo motivo il Piano B è in standby.
 
 ## Quando rivalutare il Piano B
 
 Riprendere in considerazione questo piano se:
-- Emerge un caso d'uso "must-have" tra i gap del Piano A (hide subtree → figli, `post_removetranslation`, trash/restore, `post_move` cross-section) e mantenere hook puntuali distinti diventa insostenibile (NB: la review del 2026-05-19 ha chiuso tutti questi gap nel Piano A — questa condizione è quindi superata, ma resta valida se in futuro emergono nuovi path di visibilità non coperti).
-- L'obiettivo "dismettere Solr" viene posticipato o abbandonato e quindi la dipendenza dall'index engine non è più un problema.
-- Il consumer Kafka inizia a richiedere garanzie semantiche di "fire-on-reindex" (ogni re-index Solr ⇒ un evento Kafka).
+- Emergono nuovi path di visibilità non coperti dal Piano A e aggiungere hook puntuali distinti diventa insostenibile.
+- L'obiettivo "dismettere Solr" viene posticipato o abbandonato.
+- Il consumer Kafka inizia a richiedere garanzie semantiche "fire-on-reindex" (ogni re-index Solr ⇒ un evento Kafka).
 
 Se nessuna di queste condizioni si verifica, restiamo sul Piano A.
 

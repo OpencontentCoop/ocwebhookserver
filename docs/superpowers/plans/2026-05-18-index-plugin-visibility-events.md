@@ -2,14 +2,14 @@
 
 > **Per agentic worker:** sub-skill richiesta — usare superpowers:subagent-driven-development (consigliata) oppure superpowers:executing-plans per implementare questo piano task per task. Gli step usano la sintassi a checkbox (`- [ ]`) per il tracking.
 
-**Obiettivo:** emettere eventi Kafka quando cambia la visibilità di un contenuto (hide/show, cambio stato, cambio sezione), non solo alla pubblicazione di una nuova versione.
+**Cosa fa questo piano:** registra trigger eZ Publish per le operazioni di cambio visibilità (`post_hide`, `post_updateobjectstate`, `post_updatesection`, `post_removetranslation`, `post_move`, `post_addlocation`) e un listener `ezpEvent` per i percorsi originati da cron. Ogni volta che uno di questi eventi si verifica, costruisce il payload ocopendata completo e lo emette su Kafka tramite l'outbox esistente. Non dipende da Solr.
 
-**Piano A (questo documento) vs Piano B (alternativo):** intercettare `eZSolr::addObject()` con un `ezpIndexPlugin` — il **Piano B** — sarebbe l'entry point più compatto perché un singolo hook copre automaticamente ogni path che re-indicizza il contenuto. È stato però scartato in questa fase perché legherebbe l'emissione eventi alla presenza di Solr: uno degli obiettivi a medio termine è poter **disattivare Solr** sui tenant che non lo usano (es. sostituirlo con un motore di ricerca esterno); se l'emissione Kafka dipendesse dal plugin di indicizzazione Solr, dismetterlo significherebbe perdere gli eventi. La strategia ibrida del Piano A separa emissione e layer di ricerca. Il Piano B resta documentato in [`piano-b-solr-index-plugin.md`](./piano-b-solr-index-plugin.md) come fallback ripristinabile se i gap del Piano A (hide subtree figli, translation, trash, move) diventassero bloccanti.
-
-**Architettura:** tre meccanismi complementari coprono tutti i path di cambio visibilità senza dipendere da Solr come sorgente dell'evento:
-1. **Workflow su operation handler** — estendere `WorkflowWebHookType` per gestire `post_hide`, `post_updateobjectstate`, `post_updatesection` oltre a `post_publish`; registrare le righe trigger nel DB per queste operazioni. Copre tutti i cambi originati da UI.
+**Architettura:** tre meccanismi complementari coprono tutti i path di cambio visibilità:
+1. **Workflow su operation handler** — estendere `WorkflowWebHookType` per gestire `post_hide`, `post_updateobjectstate`, `post_updatesection` e altri trigger; registrare le righe nella tabella `eztrigger`. Copre tutti i cambi originati da UI.
 2. **Listener `ezpEvent`** — `OpenPAStateTools::flushObject()` e `OpenPASectionTools::flushObject()` emettono `ezpEvent('openpa/object/flushed')`; `OCWebHookObjectFlushListener` in `ocwebhookserver` riceve l'evento ed emette. Copre i cambi originati da cron senza accoppiare `openpa` a `ocwebhookserver`.
-3. **Estrazione payload builder** — `OCWebHookPayloadBuilder` condiviso da tutti i path di emit, per eliminare la duplicazione di codice.
+3. **Payload builder condiviso** — `OCWebHookPayloadBuilder` usato da tutti i path di emit per eliminare la duplicazione di codice.
+
+**Confronto con il Piano B:** il [Piano B](./piano-b-solr-index-plugin.md) usa un singolo hook `ezpIndexPlugin` su `eZSolr::addObject()` e copre automaticamente ogni path che re-indicizza. È più compatto ma dipende da Solr: se Solr viene disabilitato su un tenant, gli eventi si perdono. Il Piano A è preferito perché separa l'emissione Kafka dal layer di ricerca.
 
 **Modello eventi (singolo trigger, nessuna differenziazione `ce_type`):** tutte le emissioni passano dall'identificatore esistente `PostPublishWebHookTrigger::IDENTIFIER` (`post_publish_ocopendata`). Non emettiamo eventi separati `.published`/`.unpublished`. Il payload include `metadata.isPublic` (calcolato da `checkAccess`) e il **consumer è responsabile di filtrare/derivare** quanto serve (es. ignorare eventi su contenuti privati, dedurre le transizioni published↔unpublished con un diff rispetto allo stato precedente).
 
