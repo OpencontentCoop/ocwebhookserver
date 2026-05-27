@@ -45,9 +45,21 @@ assert_eq($min['metadata']['id'],              42,        'buildMinimal: id');
 assert_eq($min['metadata']['remoteId'],        'remote-42','buildMinimal: remoteId');
 assert_eq($min['metadata']['classIdentifier'], 'article', 'buildMinimal: classIdentifier');
 assert_eq($min['metadata']['currentVersion'],  3,         'buildMinimal: currentVersion');
-assert_eq($min['metadata']['isPublic'],        false,     'buildMinimal: isPublic always false');
+assert_eq($min['metadata']['isPublic'],        false,     'buildMinimal: isPublic always false (oggetto in eliminazione)');
 assert_eq($min['data'],                        [],        'buildMinimal: data is empty');
 assert_eq($min['metadata']['languages'],       ['ita-IT'],'buildMinimal: languages from currentVersion');
+
+// ── NOTE sulla logica isPublic in build() ────────────────────────────────────
+// build() calcola isPublic come:
+//   !is_invisible && checkAccess('read', anon)
+//
+// Il flag is_invisible vale 1 sia per nodi nascosti direttamente (is_hidden=1)
+// che per loro figli. Questa è la fix per il bug "isPublic=true dopo HIDE":
+// checkAccess da solo è policy-based e non considera la visibilità del nodo.
+//
+// Testato E2E nel container via test_piano_c_v3.php (Piano C smoke test):
+//   HIDE → isPublic=false ✓
+//   SHOW → isPublic=true  ✓
 
 // ── risultati ────────────────────────────────────────────────────────────────
 

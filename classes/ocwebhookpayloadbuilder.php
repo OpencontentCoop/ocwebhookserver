@@ -29,7 +29,12 @@ class OCWebHookPayloadBuilder
         if ($mainNode instanceof eZContentObjectTreeNode) {
             $urlAlias = $mainNode->urlAlias();
             $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
-            $payload['metadata']['isPublic']   = (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
+            // isPublic: false se il nodo è nascosto/invisibile (is_invisible copre sia il nodo
+            // direttamente nascosto che i figli di nodi nascosti) OPPURE se l'utente anonimo
+            // non ha permesso di lettura (policy-based).
+            $isInvisible = (bool)$mainNode->attribute('is_invisible');
+            $payload['metadata']['isPublic'] = !$isInvisible
+                && (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
         } else {
             $payload['metadata']['isPublic'] = false;
         }
