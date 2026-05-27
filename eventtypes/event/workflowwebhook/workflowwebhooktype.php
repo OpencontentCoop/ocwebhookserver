@@ -17,6 +17,16 @@ class WorkflowWebHookType extends eZWorkflowEventType
      */
     function execute($process, $event)
     {
+        // Gating: se OCSearchEngine è il search engine attivo, l'emissione è già stata
+        // fatta da OCSearchEngine::addObject() durante registerSearchObject().
+        // Evitiamo la doppia emissione restando silenti.
+        if (class_exists('OCSearchEngine') && class_exists('eZSearch')) {
+            $engine = eZSearch::getEngine();
+            if ($engine instanceof OCSearchEngine) {
+                return eZWorkflowType::STATUS_ACCEPTED;
+            }
+        }
+
         $parameters = $process->attribute('parameter_list');
         $trigger = $parameters['trigger_name'];
 
