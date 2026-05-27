@@ -46,8 +46,9 @@ class eZContentObject {
 
 // Stub trigger registry + queue
 class OCWebHookQueue {
-    const HANDLER_SCHEDULED = 'scheduled';
-    public static function defaultHandler() { return 'immediate'; }
+    const HANDLER_IMMEDIATE = 1;
+    const HANDLER_SCHEDULED = 2; // mirrors the real OCWebHookQueue constant (integer)
+    public static function defaultHandler() { return self::HANDLER_IMMEDIATE; }
 }
 
 interface OCWebHookTriggerQueueAwareInterface {
@@ -164,7 +165,8 @@ ok('eccezione builder: ' . count(eZDebug::$errors) . ' errori loggati via eZDebu
 
 class TestEngineSolrFails extends OCSearchEngine {
     public function addObject($obj, $commit = true, $commitWithin = 0, $softCommit = null) {
-        // Simula parent::addObject che lancia
+        // Simula parent::addObject che lancia; poi chiama emitSafely direttamente
+        // (protected è accessibile alle sottoclassi, no Reflection needed)
         $solrException = null;
         try {
             eZSolr::$addCalls++;
@@ -173,10 +175,7 @@ class TestEngineSolrFails extends OCSearchEngine {
             $solrException = $e;
             if (class_exists('eZDebug')) eZDebug::writeError($e->getMessage(), __METHOD__);
         }
-        $reflection = new ReflectionClass('OCSearchEngine');
-        $method = $reflection->getMethod('emitSafely');
-        $method->setAccessible(true);
-        $method->invoke($this, PostPublishWebHookTrigger::IDENTIFIER, $obj, 'build');
+        $this->emitSafely(PostPublishWebHookTrigger::IDENTIFIER, $obj, 'build');
         if ($solrException !== null) throw $solrException;
     }
 }
