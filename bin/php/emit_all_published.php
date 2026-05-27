@@ -20,8 +20,6 @@
 
 require 'autoload.php';
 
-use Opencontent\Opendata\Api\Values\Content;
-
 set_time_limit(0);
 
 $cli    = eZCLI::instance();
@@ -72,13 +70,6 @@ if (!$triggerInstance instanceof OCWebHookTriggerInterface) {
 }
 $queueHandler = $triggerInstance instanceof OCWebHookTriggerQueueAwareInterface ?
     $triggerInstance->getQueueHandler() : OCWebHookQueue::defaultHandler();
-
-// ── Ambiente ocopendata (usato per buildare il payload) ────────────────────
-
-$currentEnvironment = new DefaultEnvironmentSettings();
-$parser             = new ezpRestHttpRequestParser();
-$request            = $parser->createRequest();
-$currentEnvironment->__set('request', $request);
 
 // ── Query DB: tutti i content object pubblicati ───────────────────────────
 
@@ -143,19 +134,7 @@ foreach ($rows as $i => $row) {
     }
 
     try {
-        $content = Content::createFromEzContentObject($object);
-        $payload = $currentEnvironment->filterContent($content);
-        $payload['metadata']['baseUrl']        = eZSys::serverURL();
-        $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
-
-        $mainNode = $object->mainNode();
-        if ($mainNode instanceof eZContentObjectTreeNode) {
-            $urlAlias = $mainNode->urlAlias();
-            $payload['metadata']['contentUrl'] = rtrim($payload['metadata']['baseUrl'], '/') . '/' . ltrim($urlAlias, '/');
-            $payload['metadata']['isPublic'] = (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
-        } else {
-            $payload['metadata']['isPublic'] = false;
-        }
+        $payload = OCWebHookPayloadBuilder::build($object);
 
         $classId = $object->attribute('class_identifier');
         $name    = $object->attribute('name');
