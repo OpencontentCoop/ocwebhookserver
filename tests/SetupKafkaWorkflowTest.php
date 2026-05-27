@@ -76,6 +76,33 @@ class SpyDB
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stubs globali richiesti da checkPreconditions() (chiamato da run())
+// ─────────────────────────────────────────────────────────────────────────────
+
+// eZSolr: presenza richiesta dal check 1 — stub minimo
+class eZSolr {}
+
+// eZINI: stub configurabile; default = valori Piano C corretti per test 1-4
+class eZINI
+{
+    private static $vars = [
+        'SearchSettings' => [
+            'DelayedIndexing' => 'disabled',
+            'SearchEngine'    => 'OCSearchEngine',
+        ],
+    ];
+
+    public static function setVars(array $vars) { self::$vars = $vars; }
+
+    public static function instance($file = 'site.ini') { return new self(); }
+
+    public function variable($section, $key)
+    {
+        return self::$vars[$section][$key] ?? null;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Carica la classe da testare
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -265,35 +292,25 @@ assert_contains('[skip] KafkaSettings.Brokers o Topic non configurati', $log,
     'No config: log indica skip webhook');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 5: checkPreconditions — tutti OK
+// TEST 5: checkPreconditions via run() — tutto OK (usa eZINI stub globale)
 // ─────────────────────────────────────────────────────────────────────────────
 
 echo "\n── TEST 5: checkPreconditions — tutto OK ───────────────────────────────────\n";
 
-if (!class_exists('eZSolr')) {
-    class eZSolr {}
-}
+// eZINI globale restituisce 'disabled' + 'OCSearchEngine' → precondizioni ok
+$db5 = new SpyDB();
+$db5->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]];
+$db5->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$result5 = (new OCWebHookKafkaSetupService($db5))->run(['redpanda:9092'], 'cms');
+$log5str = implode("\n", $result5['log']);
 
-$fakeIniOk = new class {
-    public function variable($s, $k) {
-        $m = ['SearchSettings' => ['DelayedIndexing' => 'disabled', 'SearchEngine' => 'OCSearchEngine']];
-        return $m[$s][$k] ?? null;
-    }
-};
-
-$db5      = new SpyDB();
-$service5 = new OCWebHookKafkaSetupService($db5);
-$log5     = [];
-$result5  = $service5->checkPreconditions($log5, $fakeIniOk);
-$log5str  = implode("\n", $log5);
-
-assert_true($result5, 'checkPreconditions OK: ritorna true');
-assert_contains('[ok] eZSolr caricabile',          $log5str, 'checkPreconditions OK: eZSolr ok');
-assert_contains('[ok] DelayedIndexing=disabled',   $log5str, 'checkPreconditions OK: DelayedIndexing ok');
-assert_contains('[ok] SearchEngine=OCSearchEngine', $log5str, 'checkPreconditions OK: SearchEngine ok');
+assert_true($result5['ok'],                           'checkPreconditions OK: run ritorna ok=true');
+assert_contains('[ok] eZSolr caricabile',             $log5str, 'checkPreconditions OK: eZSolr ok');
+assert_contains('[ok] DelayedIndexing=disabled',      $log5str, 'checkPreconditions OK: DelayedIndexing ok');
+assert_contains('[ok] SearchEngine=OCSearchEngine',   $log5str, 'checkPreconditions OK: SearchEngine ok');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 6: checkPreconditions — DelayedIndexing=enabled → fail
+// TEST 6: checkPreconditions — DelayedIndexing=enabled → run() ritorna ok=false
 // ─────────────────────────────────────────────────────────────────────────────
 
 echo "\n── TEST 6: checkPreconditions — DelayedIndexing=enabled → fail ─────────────\n";
@@ -305,18 +322,18 @@ $fakeIniDelayed = new class {
     }
 };
 
-$db6      = new SpyDB();
-$service6 = new OCWebHookKafkaSetupService($db6);
-$log6     = [];
-$result6  = $service6->checkPreconditions($log6, $fakeIniDelayed);
-$log6str  = implode("\n", $log6);
+$db6     = new SpyDB();
+$result6 = (new OCWebHookKafkaSetupService($db6))->run(['redpanda:9092'], 'cms', $fakeIniDelayed);
+$log6str = implode("\n", $result6['log']);
 
-assert_false($result6, 'checkPreconditions DelayedIndexing=enabled: ritorna false');
+assert_false($result6['ok'], 'checkPreconditions DelayedIndexing=enabled: run ritorna ok=false');
 assert_contains("[fail] [SearchSettings] DelayedIndexing='enabled'", $log6str,
     'checkPreconditions DelayedIndexing=enabled: log contiene [fail]');
+assert_contains('[ok] eZSolr caricabile', $log6str,
+    'checkPreconditions DelayedIndexing=enabled: eZSolr check eseguito prima');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 7: checkPreconditions — SearchEngine=ezsolr → warn ma non blocca
+// TEST 7: checkPreconditions — SearchEngine=ezsolr → warn, run() procede (ok=true)
 // ─────────────────────────────────────────────────────────────────────────────
 
 echo "\n── TEST 7: checkPreconditions — SearchEngine=ezsolr → warn ─────────────────\n";
@@ -328,13 +345,13 @@ $fakeIniWarn = new class {
     }
 };
 
-$db7      = new SpyDB();
-$service7 = new OCWebHookKafkaSetupService($db7);
-$log7     = [];
-$result7  = $service7->checkPreconditions($log7, $fakeIniWarn);
-$log7str  = implode("\n", $log7);
+$db7 = new SpyDB();
+$db7->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]];
+$db7->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$result7 = (new OCWebHookKafkaSetupService($db7))->run(['redpanda:9092'], 'cms', $fakeIniWarn);
+$log7str = implode("\n", $result7['log']);
 
-assert_true($result7, 'checkPreconditions SearchEngine=ezsolr: ritorna true (warn non blocca)');
+assert_true($result7['ok'], 'checkPreconditions SearchEngine=ezsolr: ritorna true (warn non blocca)');
 assert_contains("[warn] SearchEngine='ezsolr'", $log7str,
     'checkPreconditions SearchEngine=ezsolr: log contiene [warn]');
 assert_contains('[ok] DelayedIndexing=disabled', $log7str,

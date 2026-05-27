@@ -36,9 +36,14 @@ class OCWebHookKafkaSetupService
      * @param  string $topic   Kafka topic
      * @return array           ['ok' => bool, 'log' => string[]]
      */
-    public function run(array $brokers, $topic)
+    public function run(array $brokers, $topic, $siteIni = null)
     {
         $log = [];
+
+        // ── Precondizioni Piano C ─────────────────────────────────────────────
+        if (!$this->checkPreconditions($log, $siteIni)) {
+            return ['ok' => false, 'log' => $log];
+        }
 
         // ── Step 1: workflow eZ Publish ───────────────────────────────────────
 
@@ -203,7 +208,7 @@ class OCWebHookKafkaSetupService
      * @param object|null $siteIni  istanza INI per site.ini (null = usa eZINI::instance)
      * @return bool  true se OK (solo warning), false se ci sono errori critici
      */
-    public function checkPreconditions(array &$log, $siteIni = null)
+    protected function checkPreconditions(array &$log, $siteIni = null)
     {
         $ok = true;
 
@@ -278,33 +283,13 @@ class OCWebHookKafkaSetupService
         }
 
         $service = new self(eZDB::instance());
-
-        // Verifica precondizioni Piano C prima del setup
-        $precondLog = [];
-        if (!$service->checkPreconditions($precondLog)) {
-            $logger = null;
-            if ($stepInstaller !== null && method_exists($stepInstaller, 'getLogger')) {
-                $logger = $stepInstaller->getLogger();
-            }
-            foreach ($precondLog as $line) {
-                if ($logger !== null) {
-                    $logger->warning($line);
-                } else {
-                    eZCLI::instance()->output($line);
-                }
-            }
-            throw new RuntimeException(
-                "Setup abort: precondizioni Piano C non soddisfatte. Vedi log per dettagli."
-            );
-        }
-
         $result  = $service->run($brokers, $topic);
 
         $logger = null;
         if ($stepInstaller !== null && method_exists($stepInstaller, 'getLogger')) {
             $logger = $stepInstaller->getLogger();
         }
-        foreach (array_merge($precondLog, $result['log']) as $line) {
+        foreach ($result['log'] as $line) {
             if ($logger !== null) {
                 $logger->info($line);
             } else {
