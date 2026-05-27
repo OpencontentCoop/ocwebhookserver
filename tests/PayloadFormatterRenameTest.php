@@ -202,9 +202,9 @@ assert_eq($data6['applicability'],          '<p>Applicabile</p>',         'pt: a
 assert_eq($data6['obligation_name'],        '<p>Denominazione</p>',       'pt: denominazione_degli_obblighi → obligation_name');
 assert_eq($data6['compilation_guide'],      '<p>Guida</p>',               'pt: guida_alla_compilazione → compilation_guide');
 assert_eq($data6['advice_message'],         '<p>Consiglio</p>',           'pt: messaggio_di_consiglio → advice_message');
-assert_eq($data6['publication_start'],      'Immediata',                  'pt: decorrenza_di_pubblicazione → publication_start');
+assert_eq($data6['publication_start_policy'],      'Immediata',                  'pt: decorrenza_di_pubblicazione → publication_start_policy');
 assert_eq($data6['update_frequency'],       'Annuale',                    'pt: aggiornamento → update_frequency');
-assert_eq($data6['publication_end'],        'Non specificato',            'pt: termine_pubblicazione → publication_end');
+assert_eq($data6['publication_end_policy'],        'Non specificato',            'pt: termine_pubblicazione → publication_end_policy');
 assert_eq($data6['fields'],                 'document!name,abstract',     'pt: fields passa through invariato (già inglese)');
 
 // Campi originali italiani non presenti

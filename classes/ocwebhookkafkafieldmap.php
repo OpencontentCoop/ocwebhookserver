@@ -111,9 +111,9 @@ class OCWebHookKafkaFieldMap
             'denominazione_degli_obblighi' => 'obligation_name',
             'guida_alla_compilazione'      => 'compilation_guide',
             'messaggio_di_consiglio'       => 'advice_message',
-            'decorrenza_di_pubblicazione'  => 'publication_start',
+            'decorrenza_di_pubblicazione'  => 'publication_start_policy',
             'aggiornamento'                => 'update_frequency',
-            'termine_pubblicazione'        => 'publication_end',
+            'termine_pubblicazione'        => 'publication_end_policy',
         ],
 
         // ── public_project (Progetti) ─────────────────────────────────────────────
