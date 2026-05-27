@@ -193,6 +193,54 @@ class OCWebHookKafkaSetupService
         $log[] = "[ok] Webhook kafka:// registrato: ocwebhook.id=$webhookId, url=$kafkaUrl";
     }
 
+    /**
+     * Verifica le precondizioni operative del Piano C.
+     * - eZSolr installato → CRITICO se OCSearchEngine è SearchEngine
+     * - DelayedIndexing=disabled → CRITICO (eventi sarebbero deferiti al cron)
+     * - SearchEngine = OCSearchEngine → WARNING (se non lo è, il workflow handler emetterà in fallback)
+     *
+     * @param array      $log      log array passato per riferimento
+     * @param object|null $siteIni  istanza INI per site.ini (null = usa eZINI::instance)
+     * @return bool  true se OK (solo warning), false se ci sono errori critici
+     */
+    public function checkPreconditions(array &$log, $siteIni = null)
+    {
+        $ok = true;
+
+        // 1. eZSolr deve esistere
+        if (!class_exists('eZSolr')) {
+            $log[] = '[fail] eZSolr non trovato — Piano C richiede eZ Find/eZSolr installato.';
+            $ok = false;
+        } else {
+            $log[] = '[ok] eZSolr caricabile';
+        }
+
+        // 2. DelayedIndexing deve essere disabled
+        if ($siteIni === null) {
+            $siteIni = eZINI::instance('site.ini');
+        }
+        $delayed = $siteIni->variable('SearchSettings', 'DelayedIndexing');
+        if ($delayed !== 'disabled') {
+            $log[] = "[fail] [SearchSettings] DelayedIndexing='$delayed' — Piano C richiede 'disabled'. " .
+                     "Con DelayedIndexing attivo, gli eventi Kafka sarebbero deferiti al cron ezfindexsubtree.";
+            $ok = false;
+        } else {
+            $log[] = '[ok] DelayedIndexing=disabled';
+        }
+
+        // 3. SearchEngine attivo
+        $searchEngine = $siteIni->variable('SearchSettings', 'SearchEngine');
+        if ($searchEngine === 'OCSearchEngine') {
+            $log[] = '[ok] SearchEngine=OCSearchEngine';
+        } else {
+            $log[] = "[warn] SearchEngine='$searchEngine' (atteso 'OCSearchEngine'). " .
+                     "Il workflow handler emetterà in fallback — verifica site.ini merge order.";
+            // Non blocca: il fallback funziona, ma è un sintomo di configurazione errata.
+        }
+
+        return $ok;
+    }
+
     // ── Installer entry-point ─────────────────────────────────────────────────
 
     /**
@@ -230,13 +278,33 @@ class OCWebHookKafkaSetupService
         }
 
         $service = new self(eZDB::instance());
+
+        // Verifica precondizioni Piano C prima del setup
+        $precondLog = [];
+        if (!$service->checkPreconditions($precondLog)) {
+            $logger = null;
+            if ($stepInstaller !== null && method_exists($stepInstaller, 'getLogger')) {
+                $logger = $stepInstaller->getLogger();
+            }
+            foreach ($precondLog as $line) {
+                if ($logger !== null) {
+                    $logger->warning($line);
+                } else {
+                    eZCLI::instance()->output($line);
+                }
+            }
+            throw new RuntimeException(
+                "Setup abort: precondizioni Piano C non soddisfatte. Vedi log per dettagli."
+            );
+        }
+
         $result  = $service->run($brokers, $topic);
 
         $logger = null;
         if ($stepInstaller !== null && method_exists($stepInstaller, 'getLogger')) {
             $logger = $stepInstaller->getLogger();
         }
-        foreach ($result['log'] as $line) {
+        foreach (array_merge($precondLog, $result['log']) as $line) {
             if ($logger !== null) {
                 $logger->info($line);
             } else {

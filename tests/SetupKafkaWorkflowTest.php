@@ -265,6 +265,82 @@ assert_contains('[skip] KafkaSettings.Brokers o Topic non configurati', $log,
     'No config: log indica skip webhook');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 5: checkPreconditions — tutti OK
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 5: checkPreconditions — tutto OK ───────────────────────────────────\n";
+
+if (!class_exists('eZSolr')) {
+    class eZSolr {}
+}
+
+$fakeIniOk = new class {
+    public function variable($s, $k) {
+        $m = ['SearchSettings' => ['DelayedIndexing' => 'disabled', 'SearchEngine' => 'OCSearchEngine']];
+        return $m[$s][$k] ?? null;
+    }
+};
+
+$db5      = new SpyDB();
+$service5 = new OCWebHookKafkaSetupService($db5);
+$log5     = [];
+$result5  = $service5->checkPreconditions($log5, $fakeIniOk);
+$log5str  = implode("\n", $log5);
+
+assert_true($result5, 'checkPreconditions OK: ritorna true');
+assert_contains('[ok] eZSolr caricabile',          $log5str, 'checkPreconditions OK: eZSolr ok');
+assert_contains('[ok] DelayedIndexing=disabled',   $log5str, 'checkPreconditions OK: DelayedIndexing ok');
+assert_contains('[ok] SearchEngine=OCSearchEngine', $log5str, 'checkPreconditions OK: SearchEngine ok');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 6: checkPreconditions — DelayedIndexing=enabled → fail
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 6: checkPreconditions — DelayedIndexing=enabled → fail ─────────────\n";
+
+$fakeIniDelayed = new class {
+    public function variable($s, $k) {
+        $m = ['SearchSettings' => ['DelayedIndexing' => 'enabled', 'SearchEngine' => 'OCSearchEngine']];
+        return $m[$s][$k] ?? null;
+    }
+};
+
+$db6      = new SpyDB();
+$service6 = new OCWebHookKafkaSetupService($db6);
+$log6     = [];
+$result6  = $service6->checkPreconditions($log6, $fakeIniDelayed);
+$log6str  = implode("\n", $log6);
+
+assert_false($result6, 'checkPreconditions DelayedIndexing=enabled: ritorna false');
+assert_contains("[fail] [SearchSettings] DelayedIndexing='enabled'", $log6str,
+    'checkPreconditions DelayedIndexing=enabled: log contiene [fail]');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 7: checkPreconditions — SearchEngine=ezsolr → warn ma non blocca
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 7: checkPreconditions — SearchEngine=ezsolr → warn ─────────────────\n";
+
+$fakeIniWarn = new class {
+    public function variable($s, $k) {
+        $m = ['SearchSettings' => ['DelayedIndexing' => 'disabled', 'SearchEngine' => 'ezsolr']];
+        return $m[$s][$k] ?? null;
+    }
+};
+
+$db7      = new SpyDB();
+$service7 = new OCWebHookKafkaSetupService($db7);
+$log7     = [];
+$result7  = $service7->checkPreconditions($log7, $fakeIniWarn);
+$log7str  = implode("\n", $log7);
+
+assert_true($result7, 'checkPreconditions SearchEngine=ezsolr: ritorna true (warn non blocca)');
+assert_contains("[warn] SearchEngine='ezsolr'", $log7str,
+    'checkPreconditions SearchEngine=ezsolr: log contiene [warn]');
+assert_contains('[ok] DelayedIndexing=disabled', $log7str,
+    'checkPreconditions SearchEngine=ezsolr: DelayedIndexing ancora ok');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Risultati
 // ─────────────────────────────────────────────────────────────────────────────
 
