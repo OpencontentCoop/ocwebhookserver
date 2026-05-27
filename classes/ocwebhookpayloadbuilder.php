@@ -9,11 +9,17 @@ class OCWebHookPayloadBuilder
      */
     public static function build(eZContentObject $object)
     {
+        // Cache the environment/request per-process: creating these per-call adds unnecessary
+        // churn when processing hundreds of objects in CLI scripts (emit_all_published, crons).
+        static $currentEnvironment = null;
+        if ($currentEnvironment === null) {
+            $currentEnvironment = new DefaultEnvironmentSettings();
+            $parser = new ezpRestHttpRequestParser();
+            $request = $parser->createRequest();
+            $currentEnvironment->__set('request', $request);
+        }
+
         $content = Content::createFromEzContentObject($object);
-        $currentEnvironment = new DefaultEnvironmentSettings();
-        $parser = new ezpRestHttpRequestParser();
-        $request = $parser->createRequest();
-        $currentEnvironment->__set('request', $request);
         $payload = $currentEnvironment->filterContent($content);
 
         $payload['metadata']['baseUrl']        = eZSys::serverURL();
