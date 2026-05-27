@@ -21,7 +21,7 @@ class DeleteWorkflowWebHookType extends eZWorkflowEventType
     {
         // Gating: se OCSearchEngine è attivo, emette via removeObject (delete_ocopendata).
         // Questo handler resta silente per evitare doppia emissione.
-        if (class_exists('OCSearchEngine') && class_exists('eZSearch')) {
+        if (class_exists('OCSearchEngine')) {
             $engine = eZSearch::getEngine();
             if ($engine instanceof OCSearchEngine) {
                 return eZWorkflowType::STATUS_ACCEPTED;
