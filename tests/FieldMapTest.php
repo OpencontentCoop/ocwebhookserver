@@ -143,9 +143,9 @@ assert_eq($ptMap['applicabilita'],                'applicability',          'pt:
 assert_eq($ptMap['denominazione_degli_obblighi'], 'obligation_name',        'pt: denominazione_degli_obblighi → obligation_name');
 assert_eq($ptMap['guida_alla_compilazione'],      'compilation_guide',      'pt: guida_alla_compilazione → compilation_guide');
 assert_eq($ptMap['messaggio_di_consiglio'],       'advice_message',         'pt: messaggio_di_consiglio → advice_message');
-assert_eq($ptMap['decorrenza_di_pubblicazione'],  'publication_start',      'pt: decorrenza_di_pubblicazione → publication_start');
+assert_eq($ptMap['decorrenza_di_pubblicazione'],  'publication_start_policy',      'pt: decorrenza_di_pubblicazione → publication_start');
 assert_eq($ptMap['aggiornamento'],                'update_frequency',       'pt: aggiornamento → update_frequency');
-assert_eq($ptMap['termine_pubblicazione'],        'publication_end',        'pt: termine_pubblicazione → publication_end');
+assert_eq($ptMap['termine_pubblicazione'],        'publication_end_policy',        'pt: termine_pubblicazione → publication_end');
 assert_true(count($ptMap) === 10,                                            'pagina_trasparenza map has exactly 10 entries');
 
 // ── TEST 13: public_project ───────────────────────────────────────────────────
