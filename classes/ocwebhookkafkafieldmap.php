@@ -132,6 +132,7 @@ class OCWebHookKafkaFieldMap
         // ── channel ───────────────────────────────────────────────────────────
         'channel' => [
             'has_channel_type' => 'channel_type',
+            'object'           => 'subject',
         ],
 
         // ── online_contact_point ──────────────────────────────────────────────
