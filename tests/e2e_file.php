@@ -1,64 +1,46 @@
 <?php
 
 /**
- * Test E2E: crea un luogo (Place) via REST API e verifica il messaggio Kafka.
+ * Test E2E: crea un file via REST API e verifica il messaggio Kafka.
  *
- * Campi richiesti: name, type, abstract, image (URI), accessibility, has_address, help (URI)
- * SKIP se non disponibili: immagini (/media/images) o punti di contatto (/classificazioni/punti-di-contatto)
+ * Eseguire dall'interno del container:
+ *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_file.php
+ *
+ * Campi compilati: name, file (filename + uri), description, tags
+ * Campi richiesti (schema File): name, file
+ *
+ * SKIP se l'endpoint non risponde o restituisce 404.
  */
 
 require_once __DIR__ . '/e2e_helpers.php';
 
 global $script, $BROKER, $TOPIC, $APP_HOST, $authHeader, $PASSED, $FAILED;
 
-echo "=== E2E Test: Luoghi (Place) ===\n\n";
+echo "=== E2E Test: File ===\n\n";
 
 e2e_check_trigger($script);
 
 $startOffset = get_end_offset($BROKER, $TOPIC);
 echo "Kafka offset before publish: $startOffset\n\n";
 
-// ── Fetch URI necessari ───────────────────────────────────────────────────────
-
-echo "Cerco un'immagine disponibile...\n";
-$imageUri = fetch_first_uri('/api/openapi/media/images', $authHeader, $APP_HOST);
-
-echo "Cerco un punto di contatto disponibile...\n";
-$contattoUri = fetch_first_uri('/api/openapi/classificazioni/punti-di-contatto', $authHeader, $APP_HOST);
-
-if ($imageUri === null || $contattoUri === null) {
-    echo "\033[33m[SKIP]\033[0m Immagini o punti di contatto non disponibili nell'istanza\n";
-    $script->shutdown(0);
-    exit(0);
-}
-
-echo "Image URI:    $imageUri\n";
-echo "Contatto URI: $contattoUri\n\n";
-
 // ── Genera payload ────────────────────────────────────────────────────────────
 
 $uniqueSuffix = date('Ymd-His') . '-' . substr(md5(uniqid()), 0, 6);
-$title = 'Luogo Test E2E ' . $uniqueSuffix;
-
-$tipi = ['Struttura pubblica', 'Sede municipale', 'Biblioteca', 'Museo', 'Parco', 'Parcheggio'];
+$title = 'File Test E2E ' . $uniqueSuffix;
 
 $payload = json_encode([
-    'name'          => $title,
-    'type'          => [$tipi[array_rand($tipi)]],
-    'abstract'      => '<p>Luogo di test automatico: ' . rand_words(8) . ' — ' . $uniqueSuffix . '</p>',
-    'accessibility' => '<p>Accessibile alle persone con disabilità motoria.</p>',
-    'has_address'   => [
-        'latitude'  => (float)(45.0 + rand(0, 999) / 1000),
-        'longitude' => (float)(9.0  + rand(0, 999) / 1000),
-        'address'   => 'Via Test E2E ' . rand(1, 200) . ', Comune di Esempio',
+    'name'        => $title,
+    'file'        => [
+        'filename' => 'test.pdf',
+        'uri'      => 'https://www.comune.opencity.it/documenti/test.pdf',
     ],
-    'image'         => [['uri' => $imageUri]],
-    'help'          => [['uri' => $contattoUri]],
+    'description' => '<p>File di test automatico</p>',
+    'tags'        => 'test e2e kafka ' . $uniqueSuffix,
 ]);
 
 // ── POST ──────────────────────────────────────────────────────────────────────
 
-$apiPath = '/api/openapi/vivere-il-comune/luoghi';
+$apiPath = '/api/openapi/media/files';
 echo "POST $apiPath — \"$title\"\n";
 $resp = http_request('POST', $apiPath, [
     'Host'          => $APP_HOST,
@@ -70,9 +52,15 @@ $resp = http_request('POST', $apiPath, [
 echo "HTTP {$resp['code']}\n";
 echo "Response (first 300): " . substr($resp['body'], 0, 300) . "\n\n";
 
+if ($resp['code'] === 404) {
+    echo "\033[33m[SKIP]\033[0m Endpoint /api/openapi/media/files non disponibile\n";
+    $script->shutdown(0);
+    exit(0);
+}
+
 assert_true(
     in_array($resp['code'], [200, 201], true),
-    'REST API crea luogo (HTTP 200/201)',
+    'REST API crea file (HTTP 200/201)',
     "HTTP {$resp['code']}"
 );
 
@@ -91,8 +79,7 @@ if ($resourceId !== null) {
 
 echo "Attendo messaggio Kafka (max 15s)...\n";
 $message = consume_message($BROKER, $TOPIC, $startOffset, 15000);
-
-assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione luogo');
+assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione file');
 
 if ($message === null) {
     e2e_results($script);
@@ -104,17 +91,19 @@ e2e_verify_kafka_message($message, $title, 'name');
 
 // ── Salva artifact ────────────────────────────────────────────────────────────
 
-save_kafka_artifact('place', $uniqueSuffix, $message);
+save_kafka_artifact('file', $uniqueSuffix, $message);
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
 if ($resourceId !== null) {
-    echo "\nCleanup: cancello luogo id=$resourceId...\n";
+    echo "\nCleanup: cancello file id=$resourceId...\n";
     $delResp = http_request('DELETE', $apiPath . '/' . $resourceId, [
         'Host'          => $APP_HOST,
         'Authorization' => $authHeader,
     ], null, $APP_HOST);
     echo "DELETE → HTTP {$delResp['code']}\n";
 }
+
+// ── Risultati ─────────────────────────────────────────────────────────────────
 
 e2e_results($script);

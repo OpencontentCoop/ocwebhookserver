@@ -148,6 +148,24 @@ class OCWebHookKafkaPayloadFormatter
             }
         }
 
+        // Apply content-type-specific structural transformations.
+        $typeId = $meta['type_id'];
+        if ($typeId === 'event' || $typeId === 'event_with_related') {
+            foreach ($data as $lang => $attrs) {
+                $attrs = self::flattenTimeInterval($attrs);
+                $data[$lang] = self::castBooleans($attrs, ['is_accessible_for_free']);
+            }
+        }
+        if ($typeId === 'time_indexed_role') {
+            foreach ($data as $lang => $attrs) {
+                $data[$lang] = self::castBooleans($attrs, [
+                    'executive_position',
+                    'primary_role',
+                    'organizational_position',
+                ]);
+            }
+        }
+
         return ['entity' => ['meta' => $meta, 'data' => $data]];
     }
 
@@ -284,6 +302,72 @@ class OCWebHookKafkaPayloadFormatter
             return array_map(['OCWebHookKafkaPayloadFormatter', 'toUtcValue'], $value);
         }
         return $value;
+    }
+
+    /**
+     * Cast specified fields from ezboolean int (0/1) to PHP bool.
+     * Fields absent or already null are left unchanged.
+     *
+     * @param array    $attrs   entity.data.{lang} attribute map
+     * @param string[] $fields  field names to cast
+     * @return array
+     */
+    private static function castBooleans(array $attrs, array $fields)
+    {
+        foreach ($fields as $field) {
+            if (isset($attrs[$field])) {
+                $attrs[$field] = (bool)$attrs[$field];
+            }
+        }
+        return $attrs;
+    }
+
+    /**
+     * Flatten the ocevent `time_interval` field into top-level start_at / end_at / recurrences.
+     *
+     * Input (ocevent structure from ocopendata):
+     *   time_interval = {
+     *     events: [{start: "...", end: "...", ...}, ...],
+     *     default_value: {from_time: "...", to_time: "...", count: N}
+     *   }
+     *
+     * Output (replaces time_interval with):
+     *   start_at     — ISO 8601 UTC string (from default_value.from_time), null if absent
+     *   end_at       — ISO 8601 UTC string (from default_value.to_time),   null if absent
+     *   recurrences  — [{start_at, end_at}, ...] from events array (empty array if absent)
+     *
+     * Dates are already UTC-normalised by toUtcValue() before this method is called.
+     *
+     * @param array $attrs  entity.data.{lang} attribute map after FieldMap renames
+     * @return array
+     */
+    private static function flattenTimeInterval(array $attrs)
+    {
+        if (!isset($attrs['time_interval']) || !is_array($attrs['time_interval'])) {
+            return $attrs;
+        }
+
+        $ti = $attrs['time_interval'];
+        unset($attrs['time_interval']);
+
+        $defaultValue = isset($ti['default_value']) && is_array($ti['default_value'])
+            ? $ti['default_value'] : [];
+        $events = isset($ti['events']) && is_array($ti['events']) ? $ti['events'] : [];
+
+        $attrs['start_at'] = isset($defaultValue['from_time']) ? $defaultValue['from_time'] : null;
+        $attrs['end_at']   = isset($defaultValue['to_time'])   ? $defaultValue['to_time']   : null;
+
+        $attrs['recurrences'] = array_map(
+            function ($e) {
+                return [
+                    'start_at' => isset($e['start']) ? $e['start'] : null,
+                    'end_at'   => isset($e['end'])   ? $e['end']   : null,
+                ];
+            },
+            $events
+        );
+
+        return $attrs;
     }
 
     /**

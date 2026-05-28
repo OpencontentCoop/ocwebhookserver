@@ -1,22 +1,19 @@
 <?php
 
 /**
- * Test E2E: crea un servizio (PublicService) via eZ PHP API e verifica il messaggio Kafka.
+ * Test E2E: crea un progetto pubblico (PublicProject) via eZ PHP API e verifica Kafka.
  *
- * public_service ha 17 campi required con dipendenze circolari (produces_output richiede
- * oggetti di classe output, holds_role_in_time richiede role con person+entity configurati).
- * Si usa eZContentClass::instantiate() per bypassare il validatore REST, impostando solo
- * i campi scalari (name, abstract, type, identifier, ecc.).
+ * holds_role_in_time è required e richiede time_indexed_role con person+entity configurati.
+ * Si usa eZContentClass::instantiate() per bypassare il validatore REST.
  *
- * Eseguire dall'interno del container:
- *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_servizi.php
+ * SKIP se il content type public_project non è installato.
  */
 
 require_once __DIR__ . '/e2e_helpers.php';
 
 global $script, $BROKER, $TOPIC, $APP_HOST, $authHeader, $PASSED, $FAILED;
 
-echo "=== E2E Test: Servizi (PublicService) ===\n\n";
+echo "=== E2E Test: Progetti (PublicProject) ===\n\n";
 
 e2e_check_trigger($script);
 
@@ -26,27 +23,26 @@ echo "Kafka offset before publish: $startOffset\n\n";
 // ── Trova nodo padre ──────────────────────────────────────────────────────────
 
 $db = eZDB::instance();
-
 $nodeRows = $db->arrayQuery(
     "SELECT n.node_id FROM ezcontentobject_tree n " .
     "JOIN ezcontentobject o ON o.id = n.contentobject_id " .
-    "WHERE LOWER(o.name) LIKE '%servizi%' " .
+    "WHERE LOWER(o.name) LIKE '%progett%' " .
     "LIMIT 1"
 );
 $parentNodeId = !empty($nodeRows) ? (int)$nodeRows[0]['node_id'] : 2;
 echo "Nodo padre: $parentNodeId\n";
 
-// ── Crea public_service via eZ PHP API ────────────────────────────────────────
+// ── Crea public_project via eZ PHP API ────────────────────────────────────────
 
-$class = eZContentClass::fetchByIdentifier('public_service');
+$class = eZContentClass::fetchByIdentifier('public_project');
 if (!$class) {
-    echo "\033[33m[SKIP]\033[0m Content type public_service non trovato\n";
+    echo "\033[33m[SKIP]\033[0m Content type public_project non trovato\n";
     $script->shutdown(0);
     exit(0);
 }
 
 $uniqueSuffix = date('Ymd-His') . '-' . substr(md5(uniqid()), 0, 6);
-$title = 'Servizio Test E2E ' . $uniqueSuffix;
+$title = 'Progetto Test E2E ' . $uniqueSuffix;
 
 $user      = eZUser::fetchByName('admin');
 $ownerId   = $user ? $user->attribute('contentobject_id') : 14;
@@ -54,7 +50,7 @@ $sectionId = 1;
 
 $contentObject = $class->instantiate($ownerId, $sectionId, false, 'ita-IT');
 if (!$contentObject) {
-    echo "\033[33m[SKIP]\033[0m Impossibile istanziare public_service\n";
+    echo "\033[33m[SKIP]\033[0m Impossibile istanziare public_project\n";
     $script->shutdown(0);
     exit(0);
 }
@@ -72,14 +68,11 @@ $nodeAssignment->store();
 $version    = $contentObject->version(1);
 $attributes = $version->contentObjectAttributes('ita-IT');
 
-// Imposta i campi scalari
 $scalars = [
-    'name'       => $title,
-    'identifier' => 'srv-e2e-' . $uniqueSuffix,
-    'abstract'   => 'Servizio di test automatico E2E Kafka — ' . $uniqueSuffix,
-    'audience'   => '<p>Cittadini residenti nel territorio comunale.</p>',
-    'how_to'     => '<p>Rivolgersi allo sportello o presentare domanda online.</p>',
-    'has_input'  => '<p>Documento di identità valido, codice fiscale.</p>',
+    'title'        => $title,
+    'identifier'   => 'prj-e2e-' . $uniqueSuffix,
+    'abstract'     => 'Progetto di test automatico E2E Kafka.',
+    'description'  => '<p>Descrizione del progetto di test ' . $uniqueSuffix . '</p>',
 ];
 
 foreach ($attributes as $attr) {
@@ -97,14 +90,14 @@ $operationResult = eZOperationHandler::execute(
 );
 
 $objectId = $contentObject->attribute('id');
-echo "Pubblicato servizio id=$objectId — \"$title\"\n\n";
+echo "Pubblicato progetto id=$objectId — \"$title\"\n\n";
 
 // ── Consume Kafka ─────────────────────────────────────────────────────────────
 
 echo "Attendo messaggio Kafka (max 15s)...\n";
 $message = consume_message($BROKER, $TOPIC, $startOffset, 15000);
 
-assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione servizio');
+assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione progetto');
 
 if ($message === null) {
     e2e_results($script);
@@ -118,14 +111,16 @@ assert_true($payload !== null, 'Payload JSON valido');
 $data = [];
 foreach ($payload['entity']['data'] as $lang => $d) { $data = $d; break; }
 
-assert_true(isset($data['name']) && $data['name'] === $title,
-    'entity.data.name = ' . $title);
+// Il FieldMap rinomina 'name' → usa il campo title o name a seconda dell'installazione
+$nameField = isset($data['name']) ? 'name' : (isset($data['title']) ? 'title' : null);
+assert_true($nameField !== null && $data[$nameField] === $title,
+    "entity.data.$nameField = $title");
 
-save_kafka_artifact('public_service', $uniqueSuffix, $message);
+save_kafka_artifact('public_project', $uniqueSuffix, $message);
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
-echo "\nCleanup: cancello servizio id=$objectId...\n";
+echo "\nCleanup: cancello progetto id=$objectId...\n";
 eZContentObjectOperations::remove($objectId);
 echo "Rimosso.\n";
 

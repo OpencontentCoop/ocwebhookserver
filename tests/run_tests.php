@@ -16,6 +16,7 @@ $testFiles = [
     __DIR__ . '/FieldMapTest.php',
     __DIR__ . '/PayloadFormatterTest.php',
     __DIR__ . '/PayloadFormatterRenameTest.php',
+    __DIR__ . '/PayloadFormatterEventTest.php',
     __DIR__ . '/EmitAllPublishedContentUrlTest.php',
     __DIR__ . '/EmitterOutboxTest.php',
     __DIR__ . '/SetupKafkaWorkflowTest.php',
