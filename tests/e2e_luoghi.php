@@ -3,14 +3,8 @@
 /**
  * Test E2E: crea un luogo (Place) via REST API e verifica il messaggio Kafka.
  *
- * Eseguire dall'interno del container:
- *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_luoghi.php
- *
- * Campi compilati: name, type (enum), abstract, accessibility, has_address (inline),
- *   image (URI), help (contatto URI), description, alternative_name, more_information
- * Campi richiesti (schema Place): name, type, abstract, image, accessibility, has_address, help
- *
- * SKIP se non disponibili: immagini (image), punti-di-contatto (help)
+ * Campi richiesti: name, type, abstract, image (URI), accessibility, has_address, help (URI)
+ * SKIP se non disponibili: immagini (/media/images) o punti di contatto (/classificazioni/punti-di-contatto)
  */
 
 require_once __DIR__ . '/e2e_helpers.php';
@@ -26,16 +20,14 @@ echo "Kafka offset before publish: $startOffset\n\n";
 
 // ── Fetch URI necessari ───────────────────────────────────────────────────────
 
-echo "Cerco un'immagine disponibile (image)...\n";
-$imageUri = fetch_first_uri('/api/openapi/media/immagini', $authHeader, $APP_HOST);
+echo "Cerco un'immagine disponibile...\n";
+$imageUri = fetch_first_uri('/api/openapi/media/images', $authHeader, $APP_HOST);
 
-echo "Cerco un punto di contatto disponibile (help)...\n";
+echo "Cerco un punto di contatto disponibile...\n";
 $contattoUri = fetch_first_uri('/api/openapi/classificazioni/punti-di-contatto', $authHeader, $APP_HOST);
 
 if ($imageUri === null || $contattoUri === null) {
     echo "\033[33m[SKIP]\033[0m Immagini o punti di contatto non disponibili nell'istanza\n";
-    echo "  image: " . ($imageUri ?? 'null') . "\n";
-    echo "  contatto: " . ($contattoUri ?? 'null') . "\n";
     $script->shutdown(0);
     exit(0);
 }
@@ -48,26 +40,20 @@ echo "Contatto URI: $contattoUri\n\n";
 $uniqueSuffix = date('Ymd-His') . '-' . substr(md5(uniqid()), 0, 6);
 $title = 'Luogo Test E2E ' . $uniqueSuffix;
 
-$tipiLuogo = [
-    'Piazza', 'Parco', 'Museo', 'Biblioteca', 'Teatro',
-    'Centro culturale', 'Sede municipale', 'Ufficio', 'Scuola',
-];
+$tipi = ['Struttura pubblica', 'Sede municipale', 'Biblioteca', 'Museo', 'Parco', 'Parcheggio'];
 
 $payload = json_encode([
-    'name'             => $title,
-    'alternative_name' => 'Luogo Alt. ' . $uniqueSuffix,
-    'type'             => [$tipiLuogo[array_rand($tipiLuogo)]],
-    'abstract'         => 'Luogo di test: ' . rand_words(8),
-    'description'      => rand_html_body(2),
-    'accessibility'    => 'Accessibile — ' . rand_words(5),
-    'has_address'      => [
-        'address'   => 'Via Test ' . rand(1, 99) . ', ' . rand(10000, 99999) . ' Comune Test',
-        'latitude'  => round(43.0 + (rand(0, 100) / 1000), 6),
-        'longitude' => round(10.0 + (rand(0, 100) / 1000), 6),
+    'name'          => $title,
+    'type'          => [$tipi[array_rand($tipi)]],
+    'abstract'      => '<p>Luogo di test automatico: ' . rand_words(8) . ' — ' . $uniqueSuffix . '</p>',
+    'accessibility' => '<p>Accessibile alle persone con disabilità motoria.</p>',
+    'has_address'   => [
+        'latitude'  => (float)(45.0 + rand(0, 999) / 1000),
+        'longitude' => (float)(9.0  + rand(0, 999) / 1000),
+        'address'   => 'Via Test E2E ' . rand(1, 200) . ', Comune di Esempio',
     ],
-    'image'            => [['uri' => $imageUri]],
-    'help'             => [['uri' => $contattoUri]],
-    'more_information' => rand_html_body(1),
+    'image'         => [['uri' => $imageUri]],
+    'help'          => [['uri' => $contattoUri]],
 ]);
 
 // ── POST ──────────────────────────────────────────────────────────────────────
@@ -105,7 +91,8 @@ if ($resourceId !== null) {
 
 echo "Attendo messaggio Kafka (max 15s)...\n";
 $message = consume_message($BROKER, $TOPIC, $startOffset, 15000);
-assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione');
+
+assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione luogo');
 
 if ($message === null) {
     e2e_results($script);
@@ -113,11 +100,11 @@ if ($message === null) {
 
 // ── Verifica payload ──────────────────────────────────────────────────────────
 
-e2e_verify_kafka_message($message, $title);
+e2e_verify_kafka_message($message, $title, 'name');
 
 // ── Salva artifact ────────────────────────────────────────────────────────────
 
-save_kafka_artifact('luoghi', $uniqueSuffix, $message);
+save_kafka_artifact('place', $uniqueSuffix, $message);
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -129,7 +116,5 @@ if ($resourceId !== null) {
     ], null, $APP_HOST);
     echo "DELETE → HTTP {$delResp['code']}\n";
 }
-
-// ── Risultati ─────────────────────────────────────────────────────────────────
 
 e2e_results($script);

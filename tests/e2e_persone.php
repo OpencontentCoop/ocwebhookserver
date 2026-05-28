@@ -1,108 +1,107 @@
 <?php
 
 /**
- * Test E2E: crea una persona del personale amministrativo (PublicPerson) e verifica Kafka.
+ * Test E2E: crea e pubblica una persona pubblica (PublicPerson) via eZ PHP API e verifica Kafka.
  *
- * Eseguire dall'interno del container:
- *   docker compose exec -T app php /var/www/html/extension/ocwebhookserver/tests/e2e_persone.php
+ * has_role è openparole (campo calcolato, non settabile). Si usa eZContentClass::instantiate()
+ * per creare il content object direttamente, bypassing il validatore REST.
  *
- * Campi compilati: given_name, family_name, has_contact_point (contatto URI),
- *   has_role (ruolo URI), abstract, competenze, deleghe, bio, notes
- * Campi richiesti (schema PublicPerson): given_name, family_name, has_contact_point, has_role
- *
- * SKIP se non disponibili: punti-di-contatto (has_contact_point), ruoli (has_role)
+ * SKIP se il content type public_person non esiste nell'installazione.
  */
 
 require_once __DIR__ . '/e2e_helpers.php';
 
 global $script, $BROKER, $TOPIC, $APP_HOST, $authHeader, $PASSED, $FAILED;
 
-echo "=== E2E Test: Persone (PublicPerson / Personale Amministrativo) ===\n\n";
+echo "=== E2E Test: Persone pubbliche (PublicPerson) ===\n\n";
 
 e2e_check_trigger($script);
 
 $startOffset = get_end_offset($BROKER, $TOPIC);
 echo "Kafka offset before publish: $startOffset\n\n";
 
-// ── Fetch URI necessari ───────────────────────────────────────────────────────
+// ── Trova nodo padre ──────────────────────────────────────────────────────────
 
-echo "Cerco un punto di contatto disponibile (has_contact_point)...\n";
-$contattoUri = fetch_first_uri('/api/openapi/classificazioni/punti-di-contatto', $authHeader, $APP_HOST);
+$db = eZDB::instance();
 
-echo "Cerco un ruolo disponibile (has_role)...\n";
-$ruoloUri = fetch_first_uri('/api/openapi/amministrazione/ruoli', $authHeader, $APP_HOST);
+// Cerca il nodo dell'area personale-amministrativo
+$nodeRows = $db->arrayQuery(
+    "SELECT n.node_id FROM ezcontentobject_tree n " .
+    "JOIN ezcontentobject o ON o.id = n.contentobject_id " .
+    "WHERE LOWER(o.name) LIKE '%personale%' OR LOWER(o.name) LIKE '%politici%' " .
+    "LIMIT 1"
+);
 
-$missing = [];
-if ($contattoUri === null) $missing[] = 'punto-di-contatto';
-if ($ruoloUri === null)    $missing[] = 'ruolo';
+// Fallback: usa il nodo 2 (root content)
+$parentNodeId = !empty($nodeRows) ? (int)$nodeRows[0]['node_id'] : 2;
+echo "Nodo padre: $parentNodeId\n";
 
-if (!empty($missing)) {
-    echo "\033[33m[SKIP]\033[0m Risorse non disponibili: " . implode(', ', $missing) . "\n";
+// ── Crea public_person via eZContentClass::instantiate() ──────────────────────
+
+$class = eZContentClass::fetchByIdentifier('public_person');
+if (!$class) {
+    echo "\033[33m[SKIP]\033[0m Content type public_person non trovato\n";
     $script->shutdown(0);
     exit(0);
 }
 
-echo "Contatto URI: $contattoUri\n";
-echo "Ruolo URI:    $ruoloUri\n\n";
-
-// ── Genera payload ────────────────────────────────────────────────────────────
-
 $uniqueSuffix = date('Ymd-His') . '-' . substr(md5(uniqid()), 0, 6);
+$givenName    = 'Mario Test';
+$familyName   = 'E2E ' . $uniqueSuffix;
 
-$nomi     = ['Marco', 'Laura', 'Giovanni', 'Alessandra', 'Roberto', 'Federica', 'Paolo'];
-$cognomi  = ['Rossi', 'Bianchi', 'Verdi', 'Ferraro', 'Mancini', 'Romano', 'Conti'];
-$givenName  = $nomi[array_rand($nomi)] . ' Test';
-$familyName = $cognomi[array_rand($cognomi)] . ' E2E';
-$title = "$givenName $familyName";
+// Crea oggetto
+$user      = eZUser::fetchByName('admin');
+$ownerId   = $user ? $user->attribute('contentobject_id') : 14;
+$sectionId = eZSection::fetchByIdentifier('standard') ? eZSection::fetchByIdentifier('standard')->attribute('id') : 1;
 
-$payload = json_encode([
-    'given_name'        => $givenName,
-    'family_name'       => $familyName,
-    'has_contact_point' => [['uri' => $contattoUri]],
-    'has_role'          => [['uri' => $ruoloUri]],
-    'abstract'          => 'Funzionario test creato dal sistema E2E — ' . $uniqueSuffix,
-    'competenze'        => 'Competenze: ' . rand_words(6),
-    'deleghe'           => 'Deleghe: ' . rand_words(4),
-    'bio'               => rand_html_body(2),
-    'notes'             => 'Nota automatica test E2E — ' . $uniqueSuffix,
+$contentObject = $class->instantiate($ownerId, $sectionId, false, 'ita-IT');
+if (!$contentObject) {
+    echo "\033[33m[SKIP]\033[0m Impossibile istanziare public_person\n";
+    $script->shutdown(0);
+    exit(0);
+}
+
+// Assegna al nodo padre
+$nodeAssignment = eZNodeAssignment::create([
+    'contentobject_id'      => $contentObject->attribute('id'),
+    'contentobject_version' => 1,
+    'parent_node'           => $parentNodeId,
+    'is_main'               => 1,
+    'sort_field'            => eZContentObjectTreeNode::SORT_FIELD_PUBLISHED,
+    'sort_order'            => eZContentObjectTreeNode::SORT_ORDER_DESC,
 ]);
+$nodeAssignment->store();
 
-// ── POST ──────────────────────────────────────────────────────────────────────
+// Setta attributi
+$version    = $contentObject->version(1);
+$attributes = $version->contentObjectAttributes('ita-IT');
 
-$apiPath = '/api/openapi/amministrazione/personale-amministrativo';
-echo "POST $apiPath — \"$title\"\n";
-$resp = http_request('POST', $apiPath, [
-    'Host'          => $APP_HOST,
-    'Content-Type'  => 'application/json',
-    'Accept'        => 'application/json',
-    'Authorization' => $authHeader,
-], $payload, $APP_HOST);
+foreach ($attributes as $attr) {
+    $identifier = $attr->contentClassAttributeIdentifier();
+    if ($identifier === 'given_name') {
+        $attr->fromString($givenName);
+        $attr->store();
+    } elseif ($identifier === 'family_name') {
+        $attr->fromString($familyName);
+        $attr->store();
+    }
+}
 
-echo "HTTP {$resp['code']}\n";
-echo "Response (first 300): " . substr($resp['body'], 0, 300) . "\n\n";
-
-assert_true(
-    in_array($resp['code'], [200, 201], true),
-    'REST API crea persona (HTTP 200/201)',
-    "HTTP {$resp['code']}"
+// Pubblica
+$operationResult = eZOperationHandler::execute(
+    'content', 'publish',
+    ['object_id' => $contentObject->attribute('id'), 'version' => 1]
 );
 
-if (!in_array($resp['code'], [200, 201], true)) {
-    e2e_results($script);
-}
-
-$responseData = json_decode($resp['body'], true);
-$resourceId   = $responseData['metadata']['id'] ?? $responseData['id'] ?? null;
-if ($resourceId !== null) {
-    ok('Risposta REST contiene id');
-    echo "ID: $resourceId\n\n";
-}
+$objectId = $contentObject->attribute('id');
+echo "Pubblicata persona id=$objectId — \"$givenName $familyName\"\n\n";
 
 // ── Consume Kafka ─────────────────────────────────────────────────────────────
 
 echo "Attendo messaggio Kafka (max 15s)...\n";
 $message = consume_message($BROKER, $TOPIC, $startOffset, 15000);
-assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione');
+
+assert_true($message !== null, 'Messaggio Kafka ricevuto dopo pubblicazione persona');
 
 if ($message === null) {
     e2e_results($script);
@@ -110,23 +109,26 @@ if ($message === null) {
 
 // ── Verifica payload ──────────────────────────────────────────────────────────
 
-e2e_verify_kafka_message($message, $title);
+$payload = json_decode($message->payload, true);
+assert_true($payload !== null, 'Payload JSON valido');
 
-// ── Salva artifact ────────────────────────────────────────────────────────────
+$data = [];
+foreach ($payload['entity']['data'] as $lang => $d) {
+    $data = $d;
+    break;
+}
 
-save_kafka_artifact('persone', $uniqueSuffix, $message);
+assert_true(isset($data['given_name']) && $data['given_name'] === $givenName,
+    'entity.data.given_name = ' . $givenName);
+assert_true(isset($data['family_name']) && $data['family_name'] === $familyName,
+    'entity.data.family_name = ' . $familyName);
+
+save_kafka_artifact('public_person', $uniqueSuffix, $message);
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
 
-if ($resourceId !== null) {
-    echo "\nCleanup: cancello persona id=$resourceId...\n";
-    $delResp = http_request('DELETE', $apiPath . '/' . $resourceId, [
-        'Host'          => $APP_HOST,
-        'Authorization' => $authHeader,
-    ], null, $APP_HOST);
-    echo "DELETE → HTTP {$delResp['code']}\n";
-}
-
-// ── Risultati ─────────────────────────────────────────────────────────────────
+echo "\nCleanup: cancello persona id=$objectId...\n";
+eZContentObjectOperations::remove($objectId);
+echo "Rimossa.\n";
 
 e2e_results($script);
