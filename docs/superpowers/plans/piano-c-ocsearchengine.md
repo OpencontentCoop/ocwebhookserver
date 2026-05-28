@@ -4,7 +4,7 @@
 
 **Obiettivo:** emettere un evento Kafka ogni volta che cambia la visibilità di un contenuto (hide/show, cambio stato, cambio sezione, move, rimozione traduzione, restore da cestino), non solo alla pubblicazione di una nuova versione. Il consumer può così tenere sincronizzato un indice esterno o reagire ai cambi di accessibilità pubblica senza fare polling sul CMS.
 
-**Cosa fa questo piano:** crea una classe `OCSearchEngine` che estende `eZSolr` e diventa il search engine attivo dell'installazione via `site.ini.append.php` dell'estensione. `OCSearchEngine::addObject()` e `removeObject()` delegano al parent (Solr indicizza normalmente) e in coda emettono l'evento Kafka. Un unico punto di intercettazione copre tutti i path che provocano un re-index (UI, cron OpenPA, script batch, restore, move, removetranslation), perché tutti finiscono in `eZContentOperationCollection::registerSearchObject()` → `eZSolr::addObject()`. Per evitare doppie emissioni, `WorkflowWebHookType` e `DeleteWorkflowWebHookType` vengono gated: se il search engine attivo è `OCSearchEngine`, restano silenti.
+**Cosa fa questo piano:** crea una classe `OCSearchEngine` che estende `eZSolr` e diventa il search engine attivo dell'installazione. La classe vive in `ocwebhookserver`; l'attivazione avviene per-tenant via env var (`EZINI_site__SearchSettings__SearchEngine=OCSearchEngine`) — **nessuna modifica al `site.ini.append.php` dell'estensione**, per garantire opt-in esplicito. `OCSearchEngine::addObject()` e `removeObject()` delegano al parent (Solr indicizza normalmente) e in coda emettono l'evento Kafka. Un unico punto di intercettazione copre tutti i path che provocano un re-index (UI, cron OpenPA, script batch, restore, move, removetranslation), perché tutti finiscono in `eZContentOperationCollection::registerSearchObject()` → `eZSolr::addObject()`. Per evitare doppie emissioni, `WorkflowWebHookType` e `DeleteWorkflowWebHookType` vengono gated: se il search engine attivo è `OCSearchEngine`, restano silenti.
 
 **Confronto con Piano A e Piano B:**
 - Il [Piano A](./2026-05-18-index-plugin-visibility-events.md) intercetta ogni operazione con hook puntuali (sei trigger eZ + listener `ezpEvent` + modifiche a `openpa`). Non dipende da Solr, ma richiede una migrazione DB su 500 tenant (6 righe `eztrigger` per tenant), un commit cross-repo su `openpa` e un update di `composer.lock`.
@@ -161,7 +161,7 @@ Da eseguire prima di mergiare il PR di Piano C su un tenant in produzione:
 | `classes/ocsearchengine.php` | **Creare** | Estende `eZSolr`; sovrascrive `addObject`/`removeObject`; loop guard + try/catch |
 | `eventtypes/event/workflowwebhook/workflowwebhooktype.php` | **Modificare** | Gate su `eZSearch::getEngine() instanceof OCSearchEngine` |
 | `eventtypes/event/deleteworkflowwebhook/deleteworkflowwebhooktype.php` | **Modificare** | Gate su `eZSearch::getEngine() instanceof OCSearchEngine` |
-| `settings/site.ini.append.php` | **Modificare** | Aggiunge `[SearchSettings] SearchEngine=OCSearchEngine` |
+| `settings/site.ini.append.php` | **Non modificare** | Attivazione via env var per-tenant (opt-in esplicito) |
 | `classes/ocwebhookkafkasetupservice.php` | **Modificare** | Aggiunge check precondizioni (`DelayedIndexing`, `eZSolr`, engine) |
 | `tests/PayloadBuilderTest.php` | **Creare** (se non esiste) | Unit test helper builder |
 | `tests/SearchEngineEmitTest.php` | **Creare** | Unit test `OCSearchEngine` (gate, loop guard, trigger corretto) |
@@ -850,43 +850,22 @@ git commit -m "feat: gate workflow webhook handlers when OCSearchEngine is activ
 
 ---
 
-## Task 4 — Attivare `OCSearchEngine` via `site.ini.append.php`
+## Task 4 — Attivare `OCSearchEngine` via env var e rigenerare autoload
+
+`settings/site.ini.append.php` **non viene modificato** — l'attivazione è opt-in per-tenant tramite env var. Questo task rigenera solo l'autoload eZ e verifica che il container carichi la nuova classe quando la env var è presente.
 
 **File:**
-- Modificare: `settings/site.ini.append.php`
+- Nessun file da modificare nell'estensione
 
-- [ ] **Step 4.1: aggiungere il blocco `[SearchSettings]`**
+- [ ] **Step 4.1: impostare la env var nel container locale**
 
-Il file attuale (`/Volumes/Repos/sviluppo-sito-comunale/ocwebhookserver/settings/site.ini.append.php`) contiene:
+Nel `docker-compose.yml` locale (o `.env`), aggiungere:
 
-```php
-<?php /* #?ini charset="utf-8"?
-
-[RegionalSettings]
-TranslationExtensions[]=ocwebhookserver
-
-[RoleSettings]
-PolicyOmitList[]=webhook/metrics
-
-*/ ?>
+```yaml
+EZINI_site__SearchSettings__SearchEngine: OCSearchEngine
 ```
 
-Aggiungere il blocco `[SearchSettings]` per fare `OCSearchEngine` il search engine attivo:
-
-```php
-<?php /* #?ini charset="utf-8"?
-
-[RegionalSettings]
-TranslationExtensions[]=ocwebhookserver
-
-[RoleSettings]
-PolicyOmitList[]=webhook/metrics
-
-[SearchSettings]
-SearchEngine=OCSearchEngine
-
-*/ ?>
-```
+Riavviare il container (o `docker exec ... php ezpgenerateautoloads.php` è sufficiente se la env var è già attiva).
 
 - [ ] **Step 4.2: rigenerare la mappa autoload eZ**
 
@@ -915,14 +894,7 @@ echo get_class(\$engine) . PHP_EOL;
 
 Atteso: `OCSearchEngine`.
 
-Se invece restituisce `eZSolr` o `eZSearch`, controllare l'ordine di merge di `site.ini` (qualche altra estensione attiva dopo `ocwebhookserver` potrebbe sovrascrivere `SearchEngine`).
-
-- [ ] **Step 4.4: commit**
-
-```bash
-git add settings/site.ini.append.php
-git commit -m "feat: configure OCSearchEngine as active search engine"
-```
+Se restituisce `eZSolr` o `eZSearch`, controllare che la env var sia effettivamente passata al container (`docker inspect cms-app-1 | grep SearchEngine`).
 
 ---
 
