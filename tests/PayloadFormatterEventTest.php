@@ -293,6 +293,12 @@ foreach ($data['recurrences'] as $i => $rec) {
 // topics: array (vuoto ok, ma deve essere array)
 assert_true(is_array($data['topics']), '6.12 topics è array');
 
+// is_accessible_for_free: boolean (non integer 0/1)
+assert_true(
+    $data['is_accessible_for_free'] === true || $data['is_accessible_for_free'] === false || $data['is_accessible_for_free'] === null,
+    '6.13 is_accessible_for_free è boolean o null (non integer)'
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Risultato finale
 // ─────────────────────────────────────────────────────────────────────────────

@@ -152,7 +152,13 @@ class OCWebHookKafkaPayloadFormatter
         $typeId = $meta['type_id'];
         if ($typeId === 'event' || $typeId === 'event_with_related') {
             foreach ($data as $lang => $attrs) {
-                $data[$lang] = self::flattenTimeInterval($attrs);
+                $attrs = self::flattenTimeInterval($attrs);
+                // ezboolean fields: cast 0/1 integer to bool
+                if (isset($attrs['is_accessible_for_free'])) {
+                    $attrs['is_accessible_for_free'] = $attrs['is_accessible_for_free'] !== null
+                        ? (bool)$attrs['is_accessible_for_free'] : null;
+                }
+                $data[$lang] = $attrs;
             }
         }
 
