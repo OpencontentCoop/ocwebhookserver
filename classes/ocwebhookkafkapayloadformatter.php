@@ -153,12 +153,16 @@ class OCWebHookKafkaPayloadFormatter
         if ($typeId === 'event' || $typeId === 'event_with_related') {
             foreach ($data as $lang => $attrs) {
                 $attrs = self::flattenTimeInterval($attrs);
-                // ezboolean fields: cast 0/1 integer to bool
-                if (isset($attrs['is_accessible_for_free'])) {
-                    $attrs['is_accessible_for_free'] = $attrs['is_accessible_for_free'] !== null
-                        ? (bool)$attrs['is_accessible_for_free'] : null;
-                }
-                $data[$lang] = $attrs;
+                $data[$lang] = self::castBooleans($attrs, ['is_accessible_for_free']);
+            }
+        }
+        if ($typeId === 'time_indexed_role') {
+            foreach ($data as $lang => $attrs) {
+                $data[$lang] = self::castBooleans($attrs, [
+                    'executive_position',
+                    'primary_role',
+                    'organizational_position',
+                ]);
             }
         }
 
@@ -298,6 +302,24 @@ class OCWebHookKafkaPayloadFormatter
             return array_map(['OCWebHookKafkaPayloadFormatter', 'toUtcValue'], $value);
         }
         return $value;
+    }
+
+    /**
+     * Cast specified fields from ezboolean int (0/1) to PHP bool.
+     * Fields absent or already null are left unchanged.
+     *
+     * @param array    $attrs   entity.data.{lang} attribute map
+     * @param string[] $fields  field names to cast
+     * @return array
+     */
+    private static function castBooleans(array $attrs, array $fields)
+    {
+        foreach ($fields as $field) {
+            if (isset($attrs[$field])) {
+                $attrs[$field] = (bool)$attrs[$field];
+            }
+        }
+        return $attrs;
     }
 
     /**

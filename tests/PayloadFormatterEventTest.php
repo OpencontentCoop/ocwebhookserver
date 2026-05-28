@@ -300,6 +300,34 @@ assert_true(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST SUITE 7 — time_indexed_role: cast boolean fields
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n=== Suite 7: time_indexed_role boolean cast ===\n";
+
+$tirPayload = [
+    'metadata' => [
+        'id' => '55', 'classIdentifier' => 'time_indexed_role',
+        'languages' => ['it-IT'], 'name' => ['it-IT' => 'Sindaco'],
+    ],
+    'data' => ['it-IT' => [
+        'label'                   => ['content' => 'Sindaco'],
+        'executive_position'      => ['content' => 0],
+        'primary_role'            => ['content' => 1],
+        'organizational_position' => ['content' => 0],
+        'priority'                => ['content' => 1],
+    ]],
+];
+
+$tirResult = $formatter->format($tirPayload);
+$tirData   = $tirResult['entity']['data']['it-IT'];
+
+assert_true($tirData['executive_position'] === false,  '7.1 executive_position: 0 → false');
+assert_true($tirData['primary_role']       === true,   '7.2 primary_role: 1 → true');
+assert_true($tirData['organizational_position'] === false, '7.3 organizational_position: 0 → false');
+assert_true(is_int($tirData['priority']),              '7.4 priority: integer invariato');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Risultato finale
 // ─────────────────────────────────────────────────────────────────────────────
 
