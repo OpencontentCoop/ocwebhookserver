@@ -7,7 +7,7 @@ require_once __DIR__ . '/../classes/ocwebhookpayloadbuilder.php';
 // ── stub minimi ──────────────────────────────────────────────────────────────
 
 class eZContentObjectVersion {
-    public function languageList() { return ['ita-IT']; }
+    public function translationList($language = false, $asObject = true) { return $asObject ? [] : ['ita-IT']; }
     public function attribute($k) { return $k === 'creator_id' ? 10 : null; }
 }
 
