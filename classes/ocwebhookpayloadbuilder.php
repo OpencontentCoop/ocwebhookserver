@@ -100,7 +100,7 @@ class OCWebHookPayloadBuilder
     public static function buildMinimal(eZContentObject $object)
     {
         $version   = $object->currentVersion();
-        $languages = $version instanceof eZContentObjectVersion ? $version->languageList() : [];
+        $languages = $version instanceof eZContentObjectVersion ? $version->translationList(false, false) : [];
 
         return [
             'metadata' => [
