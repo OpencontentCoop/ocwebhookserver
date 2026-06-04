@@ -19,6 +19,8 @@ $testFiles = [
     __DIR__ . '/PayloadFormatterEventTest.php',
     __DIR__ . '/EmitAllPublishedContentUrlTest.php',
     __DIR__ . '/EmitterOutboxTest.php',
+    __DIR__ . '/PayloadBuilderTest.php',
+    __DIR__ . '/SearchEngineEmitTest.php',
     __DIR__ . '/SetupKafkaWorkflowTest.php',
     __DIR__ . '/KafkaProducerTest.php',
 ];

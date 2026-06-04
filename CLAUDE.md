@@ -35,6 +35,50 @@ Il cron eZ Publish (`webhook_unfrequently` / `webhook_frequently`) riprende i jo
 
 ---
 
+## OCSearchEngine — eventi di visibilità (Piano C)
+
+`OCSearchEngine` estende `eZSolr` e intercetta `addObject`/`removeObject` per emettere eventi Kafka ogni volta che cambia la visibilità di un contenuto (hide/show, cambio stato, cambio sezione, move, restore), non solo alla pubblicazione.
+
+### Attivazione (opt-in per tenant)
+
+```yaml
+EZINI_site__SearchSettings__SearchEngine: OCSearchEngine
+EZINI_site__SearchSettings__ExtensionDirectories__0: ocwebhookserver
+```
+
+**Entrambe le env var sono necessarie.** `eZSearch::getEngine()` non usa l'autoload eZ ma cerca il file a `extension/{ext}/search/plugins/{name}/{name}.php` — il file `search/plugins/ocsearchengine/ocsearchengine.php` è l'entry point che carica la classe vera da `classes/ocsearchengine.php`.
+
+### Gating anti-doppia-emissione
+
+Quando `OCSearchEngine` è attivo:
+- `WorkflowWebHookType` (post_publish) → **silente** — OCSearchEngine ha già emesso
+- `DeleteWorkflowWebHookType` (pre_delete) → **silente solo su hard delete** (oggetto `STATUS_ARCHIVED`). Per **soft delete (trash)** il workflow emette perché `eZSolr::removeObject` non viene chiamato da eZ durante il cestinamento.
+
+### Comportamenti da conoscere
+
+**`isPublic`**: calcolato come `!is_invisible && checkAccess(anon)`.
+- `is_invisible=1` vale sia per nodi nascosti direttamente (`is_hidden=1`) che per figli di nodi nascosti — copre entrambi i casi.
+- `checkAccess` da solo non è sufficiente: è policy-based e non riflette il flag `is_hidden`.
+
+**Move nodo**: genera 3–4 eventi `post_publish_ocopendata` per la stessa operazione (by design eZ: `removeNodeAssignment` + `addNodeAssignment` + `moveNode` chiamano ciascuno `registerSearchObject`). Non è un bug — il consumer deve gestire eventi idempotenti.
+
+**Trash (soft delete)**: eZ non chiama `eZSolr::removeObject` durante il cestinamento. Il trigger `pre_delete → DeleteWorkflowWebHookType` deve essere configurato manualmente per tenant per ricevere eventi `delete_ocopendata` su trash. Il workflow NON viene configurato da `setup_kafka_workflow.php`.
+
+**Hard delete**: `OCSearchEngine::removeObject` intercetta automaticamente (workflow gated).
+
+**Solr down**: se `parent::addObject` lancia, Kafka emette comunque e l'eccezione viene rilanciata al chiamante eZ. Kafka è indipendente da Solr.
+
+### Verifica precondizioni
+
+`setup_kafka_workflow.php` valida automaticamente le precondizioni di Piano C e logga:
+```
+[ok] eZSolr caricabile
+[ok] DelayedIndexing=disabled
+[ok] SearchEngine=OCSearchEngine   ← warn se non configurato, non blocca
+```
+
+---
+
 ## Tipi di evento (trigger)
 
 | Trigger | Identifier | Quando | Note |
@@ -118,8 +162,9 @@ Con ~500 tenant, la configurazione manuale non è praticabile. Lo script `bin/ph
 ### Cosa fa
 
 1. **Controlla** `KafkaSettings.Enabled` — se non `enabled`, esce senza fare nulla
-2. **Crea** (se non esiste) workflow eZ Publish `post_publish → WorkflowWebHookType`
-3. **Crea** (se non esiste) o **aggiorna** (se broker/topic cambiati) il record `ocwebhook` con `url = kafka://...` e il link `ocwebhook_trigger_link`
+2. **Verifica precondizioni Piano C** (`checkPreconditions`): eZSolr presente, `DelayedIndexing=disabled`, `SearchEngine=OCSearchEngine` (warn se mancante, non blocca)
+3. **Crea** (se non esiste) workflow eZ Publish `post_publish → WorkflowWebHookType`
+4. **Crea** (se non esiste) o **aggiorna** (se broker/topic cambiati) il record `ocwebhook` con `url = kafka://...` e il link `ocwebhook_trigger_link`
 
 ### Idempotenza e gestione cambio config
 
@@ -183,7 +228,7 @@ Il repo CMS include `docker-compose.events.yml` per avviare Redpanda localmente:
 docker compose -f docker-compose.yml -f docker-compose.events.yml up -d
 
 # Monitora messaggi Kafka
-OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
+OUT=$(docker exec sito-comunale-dev-redpanda-1 /usr/bin/rpk topic consume cms \
   -X brokers=redpanda:9092 --offset start --num 10 2>&1); echo "$OUT"
 
 # UI grafica
@@ -193,7 +238,7 @@ OUT=$(docker exec cms-redpanda-1 /usr/bin/rpk topic consume cms \
 Dopo aver pubblicato un contenuto nel CMS, eseguire il setup:
 
 ```bash
-OUT=$(docker exec cms-app-1 /usr/local/bin/php \
+OUT=$(docker exec sito-comunale-dev-app-1 /usr/local/bin/php \
   extension/ocwebhookserver/bin/php/setup_kafka_workflow.php \
   --allow-root-user -sbackend 2>&1); echo "$OUT"
 ```
@@ -210,12 +255,18 @@ OUT=$(docker exec cms-app-1 /usr/local/bin/php \
 | `classes/ocwebhookkafkaproducer.php` | Wrapper php-rdkafka; produce con CloudEvents header |
 | `classes/ocwebhookkafkapayloadformatter.php` | Converte payload ocopendata → formato canonico entity |
 | `classes/ocwebhookkafkafieldmap.php` | Mapping nomi campo per content type |
-| `classes/ocwebhookkafkasetupservice.php` | Logica setup idempotente workflow+webhook (testabile) |
+| `classes/ocwebhookpayloadbuilder.php` | Costruisce il payload ocopendata da `eZContentObject` (`build` completo + `buildMinimal` per delete) |
+| `classes/ocsearchengine.php` | Piano C: extends `eZSolr`, intercetta `addObject`/`removeObject`, emette eventi di visibilità |
+| `classes/ocwebhookkafkasetupservice.php` | Logica setup idempotente workflow+webhook + `checkPreconditions()` (testabile) |
 | `classes/ocwebhookpusher.php` | Pusher: gestisce http:// e kafka:// |
-| `eventtypes/event/workflowwebhook/workflowwebhooktype.php` | Workflow eZ che chiama `OCWebHookEmitter::emit()` |
+| `eventtypes/event/workflowwebhook/workflowwebhooktype.php` | Workflow post_publish; gated quando OCSearchEngine è attivo |
+| `eventtypes/event/deleteworkflowwebhook/deleteworkflowwebhooktype.php` | Workflow pre_delete; gated solo su hard delete (STATUS_ARCHIVED) |
+| `search/plugins/ocsearchengine/ocsearchengine.php` | Entry point per `eZSearch::getEngine()` — necessario perché eZSearch usa file discovery, non autoload |
 | `bin/php/setup_kafka_workflow.php` | Script CLI setup per tenant (usa OCWebHookKafkaSetupService) |
 | `settings/webhook.ini` | Default INI (Kafka disabilitato) |
-| `tests/SetupKafkaWorkflowTest.php` | Test unitari setup workflow (3 scenari) |
+| `tests/SetupKafkaWorkflowTest.php` | Test unitari setup workflow (7 scenari incluse precondizioni) |
+| `tests/SearchEngineEmitTest.php` | Test unitari OCSearchEngine (loop guard, Solr down, gating) |
+| `tests/PayloadBuilderTest.php` | Test unitari OCWebHookPayloadBuilder |
 
 ---
 
