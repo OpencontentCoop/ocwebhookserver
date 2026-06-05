@@ -7,6 +7,10 @@ use GuzzleHttp\Psr7\Response;
 
 class OCWebHookPusher
 {
+    // Riusa il producer rdkafka per tutta la vita del processo — evita la
+    // creazione di ~16 thread per ogni messaggio in script batch come emit_all_published.
+    private static $kafkaProducers = [];
+
     private $requestTimeout = 60;
 
     private $verifySsl = true;
@@ -84,7 +88,11 @@ class OCWebHookPusher
                     }
 
                     $retryCount = (int)OCWebHookFailure::count(OCWebHookFailure::definition(), ['job_id' => $jobId]);
-                    $kafkaProducer = new OCWebHookKafkaProducer($brokers, $topic);
+                    $cacheKey = $brokers . '|' . $topic;
+                    if (!isset(self::$kafkaProducers[$cacheKey])) {
+                        self::$kafkaProducers[$cacheKey] = new OCWebHookKafkaProducer($brokers, $topic);
+                    }
+                    $kafkaProducer = self::$kafkaProducers[$cacheKey];
                     $sent = $kafkaProducer->produce(
                         $job->attribute('trigger_identifier'),
                         $payload,
