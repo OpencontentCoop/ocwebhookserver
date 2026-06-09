@@ -45,12 +45,22 @@ class OCWebHookKafkaSetupService
             return ['ok' => false, 'log' => $log];
         }
 
-        // ── Step 1: workflow eZ Publish ───────────────────────────────────────
+        // ── Step 1a: workflow post_publish ───────────────────────────────────
 
         if ($this->workflowExists()) {
             $log[] = '[ok] Workflow post_publish → WorkflowWebHookType già configurato';
         } else {
             if (!$this->createWorkflow($log)) {
+                return ['ok' => false, 'log' => $log];
+            }
+        }
+
+        // ── Step 1b: workflow pre_delete ──────────────────────────────────────
+
+        if ($this->deleteWorkflowExists()) {
+            $log[] = '[ok] Workflow pre_delete → DeleteWorkflowWebHookType già configurato';
+        } else {
+            if (!$this->createDeleteWorkflow($log)) {
                 return ['ok' => false, 'log' => $log];
             }
         }
@@ -63,6 +73,7 @@ class OCWebHookKafkaSetupService
         }
 
         $this->setupWebhook($brokers, $topic, $log);
+        $this->setupDeleteWebhookLink($brokers, $topic, $log);
 
         return ['ok' => true, 'log' => $log];
     }
@@ -86,6 +97,138 @@ class OCWebHookKafkaSetupService
     }
 
     /**
+     * Verifica se esiste già un workflow event_deleteworkflowwebhook collegato a content/delete.
+     */
+    private function deleteWorkflowExists()
+    {
+        $check = $this->db->arrayQuery(
+            "SELECT COUNT(*) AS c FROM ezworkflow_event " .
+            "WHERE workflow_type_string = 'event_deleteworkflowwebhook' " .
+            "AND workflow_id IN (" .
+            "  SELECT workflow_id FROM eztrigger " .
+            "  WHERE module_name = 'content' AND function_name = 'delete' AND connect_type = 'b'" .
+            ")"
+        );
+        return (int)($check[0]['c'] ?? 0) > 0;
+    }
+
+    /**
+     * Crea ezworkflow + ezworkflow_event + eztrigger per il pre_delete.
+     * Aggiunge messaggi a $log e restituisce false in caso di errore.
+     */
+    private function createDeleteWorkflow(array &$log)
+    {
+        $now = time();
+
+        // Se il trigger content/delete/b esiste già (es. da un workflow Solr),
+        // aggiungiamo il nostro event alla catena esistente — eZ non ammette
+        // più di un trigger per la stessa combinazione (module, function, connect_type).
+        $existingTrigger = $this->db->arrayQuery(
+            "SELECT id, workflow_id FROM eztrigger " .
+            "WHERE module_name = 'content' AND function_name = 'delete' AND connect_type = 'b' LIMIT 1"
+        );
+
+        if (!empty($existingTrigger)) {
+            $workflowId = (int)$existingTrigger[0]['workflow_id'];
+            $triggerId  = (int)$existingTrigger[0]['id'];
+
+            $placementRes = $this->db->arrayQuery(
+                "SELECT COALESCE(MAX(placement), 0) + 1 AS next_placement " .
+                "FROM ezworkflow_event WHERE workflow_id = $workflowId"
+            );
+            $placement = (int)($placementRes[0]['next_placement'] ?? 1);
+
+            $this->db->query(
+                "INSERT INTO ezworkflow_event " .
+                "  (workflow_id, version, placement, workflow_type_string) " .
+                "VALUES ($workflowId, 0, $placement, 'event_deleteworkflowwebhook')"
+            );
+
+            $log[] = "[ok] Workflow pre_delete configurato: event aggiunto al workflow esistente " .
+                     "(ezworkflow.id=$workflowId, eztrigger.id=$triggerId)";
+            return true;
+        }
+
+        // Nessun trigger esistente: crea workflow + event + trigger da zero.
+        $name = 'OCWebHookServer - pre_delete';
+
+        $this->db->query(
+            "INSERT INTO ezworkflow " .
+            "  (creator_id, modifier_id, created, modified, name, is_enabled) " .
+            "VALUES (14, 14, $now, $now, '$name', 1)"
+        );
+
+        $wfRes = $this->db->arrayQuery(
+            "SELECT id FROM ezworkflow WHERE name = '$name' ORDER BY id DESC LIMIT 1"
+        );
+        $workflowId = (int)($wfRes[0]['id'] ?? 0);
+
+        if ($workflowId === 0) {
+            $log[] = '[error] INSERT INTO ezworkflow fallito (pre_delete)';
+            return false;
+        }
+
+        $this->db->query(
+            "INSERT INTO ezworkflow_event " .
+            "  (workflow_id, version, placement, workflow_type_string) " .
+            "VALUES ($workflowId, 0, 1, 'event_deleteworkflowwebhook')"
+        );
+
+        $this->db->query(
+            "INSERT INTO eztrigger " .
+            "  (module_name, function_name, connect_type, name, workflow_id) " .
+            "VALUES ('content', 'delete', 'b', 'pre_delete', $workflowId)"
+        );
+
+        $trigRes = $this->db->arrayQuery(
+            "SELECT id FROM eztrigger " .
+            "WHERE workflow_id = $workflowId AND name = 'pre_delete' LIMIT 1"
+        );
+        $triggerId = (int)($trigRes[0]['id'] ?? 0);
+
+        if ($triggerId === 0) {
+            $log[] = '[error] INSERT INTO eztrigger fallito (pre_delete)';
+            return false;
+        }
+
+        $log[] = "[ok] Workflow pre_delete configurato: ezworkflow.id=$workflowId, eztrigger.id=$triggerId";
+        return true;
+    }
+
+    /**
+     * Aggiunge il link delete_ocopendata al webhook kafka:// esistente (idempotente).
+     */
+    private function setupDeleteWebhookLink(array $brokers, $topic, array &$log)
+    {
+        $kafkaUrl = 'kafka://' . implode(',', $brokers) . '/' . $topic;
+
+        $whRow = $this->db->arrayQuery(
+            "SELECT id FROM ocwebhook WHERE url = '" . $this->db->escapeString($kafkaUrl) . "' LIMIT 1"
+        );
+        $webhookId = (int)($whRow[0]['id'] ?? 0);
+
+        if ($webhookId === 0) {
+            $log[] = '[error] Webhook kafka:// non trovato per link delete_ocopendata';
+            return;
+        }
+
+        $check = $this->db->arrayQuery(
+            "SELECT COUNT(*) AS c FROM ocwebhook_trigger_link " .
+            "WHERE webhook_id = $webhookId AND trigger_identifier = 'delete_ocopendata'"
+        );
+        if ((int)($check[0]['c'] ?? 0) > 0) {
+            $log[] = "[ok] Link delete_ocopendata già presente (webhook_id=$webhookId)";
+            return;
+        }
+
+        $this->db->query(
+            "INSERT INTO ocwebhook_trigger_link (webhook_id, trigger_identifier) " .
+            "VALUES ($webhookId, 'delete_ocopendata')"
+        );
+        $log[] = "[ok] Link delete_ocopendata aggiunto (webhook_id=$webhookId)";
+    }
+
+    /**
      * Crea ezworkflow + ezworkflow_event + eztrigger.
      * Aggiunge messaggi a $log e restituisce false in caso di errore.
      */
@@ -96,8 +239,8 @@ class OCWebHookKafkaSetupService
 
         $this->db->query(
             "INSERT INTO ezworkflow " .
-            "  (creator_id, modifier_id, created, modified, name, is_enabled, event_count) " .
-            "VALUES (14, 14, $now, $now, '$name', 1, 1)"
+            "  (creator_id, modifier_id, created, modified, name, is_enabled) " .
+            "VALUES (14, 14, $now, $now, '$name', 1)"
         );
 
         $wfRes = $this->db->arrayQuery(

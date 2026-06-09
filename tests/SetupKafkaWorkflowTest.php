@@ -358,6 +358,159 @@ assert_contains('[ok] DelayedIndexing=disabled', $log7str,
     'checkPreconditions SearchEngine=ezsolr: DelayedIndexing ancora ok');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 8: Prima esecuzione — workflow pre_delete creato
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 8: prima esecuzione — workflow pre_delete creato ────────────────────\n";
+
+$db = new SpyDB();
+$db->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 0]]; // nessun workflow esiste
+$db->results['SELECT id FROM ezworkflow WHERE name'] = [['id' => 42]];
+$db->results['SELECT id FROM eztrigger']             = [['id' => 7]];
+$db->results['SELECT w.id, w.url FROM ocwebhook']    = [];
+$db->results['SELECT id FROM ocwebhook WHERE url']   = [['id' => 5]];
+
+$service = new OCWebHookKafkaSetupService($db);
+$result  = $service->run(['redpanda:9092'], 'cms');
+
+assert_true($result['ok'], 'Prima esecuzione delete workflow: result[ok]=true');
+
+assert_true(
+    $db->hasQuery("event_deleteworkflowwebhook"),
+    'Prima esecuzione delete workflow: INSERT ezworkflow_event con event_deleteworkflowwebhook'
+);
+assert_true(
+    $db->hasQuery("'delete'"),
+    "Prima esecuzione delete workflow: INSERT eztrigger con function_name='delete'"
+);
+
+$log = implode("\n", $result['log']);
+assert_contains(
+    '[ok] Workflow pre_delete configurato',
+    $log,
+    'Prima esecuzione delete workflow: log conferma creazione'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 8b: Trigger content/delete/b già presente (es. Solr) → aggiunge event
+//          al workflow esistente invece di crearne uno nuovo
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 8b: trigger delete già presente — aggiunge event al workflow esistente\n";
+
+$db8b = new SpyDB();
+// Pattern specifici per distinguere le due query COUNT su ezworkflow_event
+$db8b->results["'event_workflowwebhook'"]        = [['c' => 1]]; // post_publish esiste
+$db8b->results["'event_deleteworkflowwebhook'"]  = [['c' => 0]]; // delete non esiste → verrà creato
+// trigger content/delete/b già esiste (es. Solr, workflow_id=3)
+$db8b->results["function_name = 'delete'"]       = [['id' => 9, 'workflow_id' => 3]];
+// placement max nel workflow 3
+$db8b->results['next_placement']                 = [['next_placement' => 2]];
+// webhook e link
+$db8b->results['SELECT w.id, w.url FROM ocwebhook']  = [['id' => 1, 'url' => 'kafka://redpanda:9092/cms']];
+$db8b->results['SELECT id FROM ocwebhook WHERE url'] = [['id' => 1]];
+$db8b->results["'delete_ocopendata'"]                = [['c' => 0]];
+
+$result8b = (new OCWebHookKafkaSetupService($db8b))->run(['redpanda:9092'], 'cms');
+
+assert_true($result8b['ok'], 'Trigger esistente: result[ok]=true');
+assert_false(
+    $db8b->hasQuery("INSERT INTO eztrigger"),
+    'Trigger esistente: nessun INSERT INTO eztrigger (trigger già presente)'
+);
+assert_false(
+    $db8b->hasQuery("INSERT INTO ezworkflow "),
+    'Trigger esistente: nessun INSERT INTO ezworkflow (usa quello esistente)'
+);
+assert_true(
+    $db8b->hasQuery("event_deleteworkflowwebhook"),
+    'Trigger esistente: INSERT INTO ezworkflow_event con event_deleteworkflowwebhook'
+);
+
+$log8b = implode("\n", $result8b['log']);
+assert_contains('[ok] Workflow pre_delete configurato', $log8b,
+    'Trigger esistente: log conferma configurazione');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 9: Idempotente — delete workflow già presente → nessun INSERT
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 9: idempotente — delete workflow già presente ───────────────────────\n";
+
+$db = new SpyDB();
+$db->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]]; // entrambi esistono
+$db->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$db->results["'delete_ocopendata'"]                 = [['c' => 1]]; // link già presente
+
+$result = (new OCWebHookKafkaSetupService(new SpyDB()))->run(['r:9092'], 'cms');
+
+$db9 = new SpyDB();
+$db9->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]];
+$db9->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$db9->results["'delete_ocopendata'"]                 = [['c' => 1]];
+
+$result9 = (new OCWebHookKafkaSetupService($db9))->run(['redpanda:9092'], 'cms');
+
+assert_true($result9['ok'], 'Idempotente delete workflow: result[ok]=true');
+assert_false(
+    $db9->hasQuery("INSERT INTO ezworkflow "),
+    'Idempotente delete workflow: nessun INSERT ezworkflow (già esistente)'
+);
+
+$log9 = implode("\n", $result9['log']);
+assert_contains(
+    '[ok] Workflow pre_delete → DeleteWorkflowWebHookType già configurato',
+    $log9,
+    'Idempotente delete workflow: log segnala già configurato'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 10: Link delete_ocopendata creato per webhook esistente
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 10: link delete_ocopendata creato ───────────────────────────────────\n";
+
+$db10 = new SpyDB();
+$db10->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]];
+$db10->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$db10->results['SELECT id FROM ocwebhook WHERE url']  = [['id' => 5]];
+// delete link NON presente → SpyDB restituisce [] per 'delete_ocopendata' → da creare
+
+$result10 = (new OCWebHookKafkaSetupService($db10))->run(['redpanda:9092'], 'cms');
+
+assert_true($result10['ok'], 'Link delete: result[ok]=true');
+
+$log10 = implode("\n", $result10['log']);
+assert_contains(
+    '[ok] Link delete_ocopendata aggiunto',
+    $log10,
+    'Link delete: log conferma inserimento link delete_ocopendata'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 11: Link delete_ocopendata già presente → idempotente
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 11: link delete_ocopendata già presente — idempotente ───────────────\n";
+
+$db11 = new SpyDB();
+$db11->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 1]];
+$db11->results['SELECT w.id, w.url FROM ocwebhook']   = [['id' => 5, 'url' => 'kafka://redpanda:9092/cms']];
+$db11->results['SELECT id FROM ocwebhook WHERE url']  = [['id' => 5]];
+$db11->results["'delete_ocopendata'"]                 = [['c' => 1]]; // link esiste già
+
+$result11 = (new OCWebHookKafkaSetupService($db11))->run(['redpanda:9092'], 'cms');
+
+assert_true($result11['ok'], 'Link delete idempotente: result[ok]=true');
+
+$log11 = implode("\n", $result11['log']);
+assert_contains(
+    '[ok] Link delete_ocopendata già presente',
+    $log11,
+    'Link delete idempotente: log segnala già presente'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Risultati
 // ─────────────────────────────────────────────────────────────────────────────
 
