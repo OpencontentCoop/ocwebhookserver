@@ -104,7 +104,7 @@ class OCSearchEngine extends eZSolr
                 : OCWebHookQueue::defaultHandler();
 
             OCWebHookEmitter::emit($triggerIdentifier, $payload, $queueHandler);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             if (class_exists('eZDebug')) {
                 eZDebug::writeError($e->getMessage(), __METHOD__);
             }

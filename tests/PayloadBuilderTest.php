@@ -38,6 +38,80 @@ function assert_eq($a,$b,$t) { $a === $b ? ok($t) : fail($t, sprintf('expected %
 
 // ── TEST buildMinimal ────────────────────────────────────────────────────────
 
+// ── stub eZUser ──────────────────────────────────────────────────────────────
+
+class eZUser {
+    private $data;
+    public function __construct(array $data) { $this->data = $data; }
+    public function attribute($k) { return isset($this->data[$k]) ? $this->data[$k] : null; }
+    public static function anonymousId() { return 10; }
+    public static function fetch($id) { return new self(['contentobject_id' => (int)$id]); }
+    public static function currentUser() {
+        if (!empty($GLOBALS['eZUserGlobalInstance_'])) {
+            return $GLOBALS['eZUserGlobalInstance_'];
+        }
+        return new self(['contentobject_id' => self::anonymousId()]);
+    }
+}
+
+// ── stub eZContentObjectTreeNode ─────────────────────────────────────────────
+// checkAccess() simula il comportamento reale: admin può sempre leggere,
+// l'anonimo può leggere solo se $anonCanRead = true.
+// Chiama eZUser::currentUser() come fa il vero eZ, così possiamo verificare
+// che il fix scambi correttamente il contesto utente prima di chiamarlo.
+
+class eZContentObjectTreeNode {
+    private $data;
+    public static $anonCanRead = false; // controllabile nei test
+
+    public function __construct(array $data = []) { $this->data = $data; }
+    public function attribute($k) { return isset($this->data[$k]) ? $this->data[$k] : null; }
+    public function urlAlias() { return 'test/path'; }
+
+    public function checkAccess($fn) {
+        $user = eZUser::currentUser();
+        $isAnon = (int)$user->attribute('contentobject_id') === eZUser::anonymousId();
+        return $isAnon ? self::$anonCanRead : true; // admin può tutto
+    }
+}
+
+// ── TEST checkIsPublic ────────────────────────────────────────────────────────
+// Bug: il 5° parametro di eZContentObjectTreeNode::checkAccess() è $language,
+// non $user. Il vecchio codice passava eZUser::anonymousId() come $language
+// (ignorato) e il check girava come eZUser::currentUser() (admin).
+// Con admin loggato, isPublic era sempre true anche per contenuti privacy.private.
+
+$admin = new eZUser(['contentobject_id' => 1]);
+$GLOBALS['eZUserGlobalInstance_'] = $admin;
+
+// is_invisible = 1 → sempre false (nodo nascosto)
+eZContentObjectTreeNode::$anonCanRead = true;
+$hiddenNode = new eZContentObjectTreeNode(['is_invisible' => 1]);
+$r = OCWebHookPayloadBuilder::checkIsPublic($hiddenNode);
+assert_eq($r, false, 'checkIsPublic: false per nodo nascosto (is_invisible=1)');
+
+// is_invisible = 0, admin loggato, anonimo NON può leggere (privacy.private)
+// BUG prima del fix: checkAccess viene chiamato come admin → true → isPublic=true (SBAGLIATO)
+// Fix: swap anon → checkAccess(anon) → false → isPublic=false (CORRETTO)
+eZContentObjectTreeNode::$anonCanRead = false;
+$privateNode = new eZContentObjectTreeNode(['is_invisible' => 0]);
+$r = OCWebHookPayloadBuilder::checkIsPublic($privateNode);
+assert_eq($r, false, 'checkIsPublic: false quando admin è loggato ma anonimo non può leggere (privacy.private)');
+
+// is_invisible = 0, admin loggato, anonimo può leggere (contenuto pubblico)
+eZContentObjectTreeNode::$anonCanRead = true;
+$publicNode = new eZContentObjectTreeNode(['is_invisible' => 0]);
+$r = OCWebHookPayloadBuilder::checkIsPublic($publicNode);
+assert_eq($r, true, 'checkIsPublic: true quando il contenuto è pubblicamente leggibile');
+
+// il global user deve essere ripristinato ad admin dopo la chiamata
+$currentAfter = $GLOBALS['eZUserGlobalInstance_'];
+assert_eq($currentAfter->attribute('contentobject_id'), 1, 'checkIsPublic: ripristina il current user originale dopo la chiamata');
+
+unset($GLOBALS['eZUserGlobalInstance_']);
+
+// ── TEST buildMinimal ────────────────────────────────────────────────────────
+
 $obj = new eZContentObject(42);
 $min = OCWebHookPayloadBuilder::buildMinimal($obj);
 

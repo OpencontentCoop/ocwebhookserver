@@ -29,12 +29,7 @@ class OCWebHookPayloadBuilder
         if ($mainNode instanceof eZContentObjectTreeNode) {
             $urlAlias = $mainNode->urlAlias();
             $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
-            // isPublic: false se il nodo è nascosto/invisibile (is_invisible copre sia il nodo
-            // direttamente nascosto che i figli di nodi nascosti) OPPURE se l'utente anonimo
-            // non ha permesso di lettura (policy-based).
-            $isInvisible = (bool)$mainNode->attribute('is_invisible');
-            $payload['metadata']['isPublic'] = !$isInvisible
-                && (bool)$mainNode->checkAccess('read', null, null, false, eZUser::anonymousId());
+            $payload['metadata']['isPublic'] = self::checkIsPublic($mainNode);
         } else {
             $payload['metadata']['isPublic'] = false;
         }
@@ -113,6 +108,45 @@ class OCWebHookPayloadBuilder
             ],
             'data' => [],
         ];
+    }
+
+    /**
+     * Determina se il nodo è pubblicamente leggibile dall'utente anonimo.
+     *
+     * Bug fix: eZContentObjectTreeNode::checkAccess() usa sempre eZUser::currentUser()
+     * (il 5° parametro è $language, non $user). Per verificare l'accesso anonimo
+     * impostiamo temporaneamente il current user all'anonimo e poi ripristiniamo.
+     *
+     * @param eZContentObjectTreeNode $mainNode
+     * @return bool
+     */
+    public static function checkIsPublic(eZContentObjectTreeNode $mainNode)
+    {
+        if ((bool)$mainNode->attribute('is_invisible')) {
+            return false;
+        }
+
+        $globalKey = 'eZUserGlobalInstance_';
+        $savedUser = isset($GLOBALS[$globalKey]) ? $GLOBALS[$globalKey] : null;
+        $anonUser = eZUser::fetch(eZUser::anonymousId());
+
+        if (!($anonUser instanceof eZUser)) {
+            return false;
+        }
+
+        $canRead = false;
+        try {
+            $GLOBALS[$globalKey] = $anonUser;
+            $canRead = (bool)$mainNode->checkAccess('read');
+        } finally {
+            if ($savedUser !== null) {
+                $GLOBALS[$globalKey] = $savedUser;
+            } else {
+                unset($GLOBALS[$globalKey]);
+            }
+        }
+
+        return $canRead;
     }
 
     public static function userInfo($userId)
