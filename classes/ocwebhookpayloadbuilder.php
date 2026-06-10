@@ -178,18 +178,49 @@ class OCWebHookPayloadBuilder
                 continue;
             }
             foreach ($attributes as $attrName => &$attrValue) {
-                $items = null;
-                if (is_array($attrValue) && array_key_exists('content', $attrValue)
-                    && is_array($attrValue['content'])
-                    && isset($attrValue['content'][0])
-                    && is_array($attrValue['content'][0])
+                // Format B: raw numeric array [{id, classIdentifier, mainNodeId, ...}, ...]
+                // DefaultEnvironmentSettings::filterContent() returns attributes in this format.
+                // Handled FIRST with its own loop to avoid PHP reference-poison: assigning
+                // $items = &$attrValue and then $items = null on the next iteration would
+                // null out $attrValue (and thus the attribute in the payload).
+                if (is_array($attrValue)
+                    && isset($attrValue[0])
+                    && is_array($attrValue[0])
+                    && !array_key_exists('content', $attrValue)
+                    && (isset($attrValue[0]['mainNodeId']) || isset($attrValue[0]['main_node_id']))
                 ) {
-                    $items = &$attrValue['content'];
-                }
-                if ($items === null) {
+                    foreach ($attrValue as &$item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
+                                : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
+                        if (!$nodeId) {
+                            continue;
+                        }
+                        if (!array_key_exists($nodeId, $nodeUrlCache)) {
+                            $node = eZContentObjectTreeNode::fetch($nodeId);
+                            $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
+                                ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
+                                : null;
+                        }
+                        if ($nodeUrlCache[$nodeId] !== null) {
+                            $item['content_url'] = $nodeUrlCache[$nodeId];
+                        }
+                    }
+                    unset($item);
                     continue;
                 }
-                foreach ($items as &$item) {
+                // Format A: wrapped {content: [...], type: "..."} — ocopendata full format
+                if (!is_array($attrValue)
+                    || !array_key_exists('content', $attrValue)
+                    || !is_array($attrValue['content'])
+                    || !isset($attrValue['content'][0])
+                    || !is_array($attrValue['content'][0])
+                ) {
+                    continue;
+                }
+                foreach ($attrValue['content'] as &$item) {
                     if (!is_array($item)) {
                         continue;
                     }

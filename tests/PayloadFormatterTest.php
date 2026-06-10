@@ -671,6 +671,60 @@ assert_eq($fmPub->format($payloadPrivate)['entity']['meta']['is_public'], false,
 assert_null($fmPub->format($payloadNoPublic)['entity']['meta']['is_public'], 'is_public null when isPublic absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 12b: file items (ocmultibinary) passano attraverso senza normalizzazione
+// — nessun id/title/taxonomy spurio aggiunto da normalizeTaxonomyItem
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadWithFiles = [
+    'metadata' => ['id' => '800', 'classIdentifier' => 'article', 'languages' => ['it-IT'],
+                   'baseUrl' => 'https://www.comune.example.it'],
+    'data' => [
+        'it-IT' => [
+            // file diretto (ocmultibinary): ha filename+url, nessun classIdentifier
+            'files' => [
+                ['filename' => 'relazione.pdf',
+                 'url' => 'https://www.comune.example.it/ocmultibinary/download/800/1/relazione.pdf',
+                 'displayName' => 'Relazione annuale', 'group' => '', 'text' => ''],
+                ['filename' => 'allegato.docx',
+                 'url' => 'https://www.comune.example.it/ocmultibinary/download/800/2/allegato.docx',
+                 'displayName' => 'Allegato B', 'group' => '', 'text' => ''],
+            ],
+            // relazione a documento (classIdentifier presente) — deve usare normalizeRelationItem
+            'attachment' => [
+                ['id' => 99, 'remoteId' => 'doc-xyz', 'classIdentifier' => 'document',
+                 'mainNodeId' => '999', 'name' => ['it-IT' => 'Delibera'],
+                 'content_url' => 'https://www.comune.example.it/delibera',
+                 'languages' => ['it-IT'], 'link' => 'read/99'],
+            ],
+        ],
+    ],
+];
+
+$fmFiles = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resFiles = $fmFiles->format($payloadWithFiles);
+$dFiles   = $resFiles['entity']['data']['it-IT'];
+
+// files: pass-through diretto — nessun campo spurio
+$file0 = $dFiles['files'][0];
+assert_eq($file0['filename'],    'relazione.pdf',  'file item: filename preservato');
+assert_eq($file0['url'],         'https://www.comune.example.it/ocmultibinary/download/800/1/relazione.pdf',
+    'file item: url preservato');
+assert_eq($file0['displayName'], 'Relazione annuale', 'file item: displayName preservato');
+assert_false(isset($file0['id']),       'file item: nessun id spurio da normalizeTaxonomyItem');
+assert_false(isset($file0['title']),    'file item: nessun title spurio');
+assert_false(isset($file0['taxonomy']), 'file item: nessun taxonomy spurio');
+assert_eq(count($dFiles['files']), 2, 'file item: entrambi i file presenti');
+
+// attachment (rinominato in attachments dalla FieldMap): normalizzato correttamente
+$att = $dFiles['attachments'][0];
+assert_eq($att['type_id'],     'document',  'attachment: type_id corretto');
+assert_eq($att['id'],          'comune:99', 'attachment: id compound');
+assert_eq($att['title'],       'Delibera',  'attachment: title risolto dalla lingua');
+assert_eq($att['content_url'], 'https://www.comune.example.it/delibera', 'attachment: content_url pass-through');
+assert_false(isset($att['classIdentifier']), 'attachment: classIdentifier rimosso');
+assert_false(isset($att['languages']),       'attachment: languages rimosso');
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TEST 12: image URL resolver — relation items di tipo image/image_with_related
 // ricevono il campo "url" dalla callable iniettata nel costruttore.
 // ─────────────────────────────────────────────────────────────────────────────

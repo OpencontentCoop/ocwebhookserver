@@ -130,6 +130,12 @@ class OCWebHookKafkaPayloadFormatter
                                 if (isset($item['classIdentifier']) || isset($item['class_identifier'])) {
                                     return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId, $siteUrl, $resolver);
                                 }
+                                // Direct file items (ocmultibinary): already have filename+url,
+                                // no classIdentifier — pass through as-is to avoid spurious
+                                // id/title/taxonomy null fields from normalizeTaxonomyItem.
+                                if (isset($item['filename'])) {
+                                    return $item;
+                                }
                                 return OCWebHookKafkaPayloadFormatter::normalizeTaxonomyItem($item, $siteUrl);
                             },
                             $content
