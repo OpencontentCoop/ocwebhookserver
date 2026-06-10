@@ -83,7 +83,7 @@ class OCWebHookPusher
                         // instanceId per entity.meta.id: usa EZ_INSTANCE (es. "opencity"),
                         // non il TenantId UUID — i due concetti sono separati.
                         $instanceId = OpenPABase::getCurrentSiteaccessIdentifier();
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId, [$this, 'resolveImageUrl']);
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId, [$this, 'resolveImageUrl'], [$this, 'resolveDocumentFiles']);
                         $payload = $formatter->format($payload);
                     }
 
@@ -188,6 +188,41 @@ class OCWebHookPusher
                 $job->registerRetryIfNeeded();
             }
         }
+    }
+
+    /**
+     * Resolve the attached files of a document content object for inclusion in Kafka payloads.
+     * Used as the $documentFilesResolver callable passed to OCWebHookKafkaPayloadFormatter.
+     *
+     * @param int|string $objectId  eZContentObject id of the document
+     * @return array|null           Array of file items [{filename, url, displayName, ...}], or null
+     */
+    public function resolveDocumentFiles($objectId)
+    {
+        static $environment = null;
+        if ($environment === null) {
+            $environment = new DefaultEnvironmentSettings();
+        }
+        try {
+            $repo = new \Opencontent\Opendata\Api\ContentRepository();
+            $repo->setEnvironment($environment);
+            $raw = (array)$repo->read((int)$objectId);
+        } catch (\Exception $e) {
+            return null;
+        }
+        foreach ($raw['data'] ?? [] as $lang => $attrs) {
+            foreach ($attrs as $attrValue) {
+                if (is_array($attrValue)
+                    && isset($attrValue[0])
+                    && is_array($attrValue[0])
+                    && isset($attrValue[0]['filename'])
+                ) {
+                    return $attrValue;
+                }
+            }
+            break; // First language is enough
+        }
+        return null;
     }
 
     /**

@@ -42,17 +42,22 @@ class OCWebHookKafkaPayloadFormatter
      * @param string|null $instanceId        Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
      *                                       Defaults to $siteaccess when null.
      * @param string|null $tenantId          Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
-     * @param callable|null $imageUrlResolver Optional callable($objectId, $siteUrl): ?string that resolves
-     *                                        the URL of an image object. Called for relation items whose
-     *                                        class_identifier is 'image' or 'image_with_related' when no
-     *                                        'url' is already present in the source item.
+     * @param callable|null $imageUrlResolver     Optional callable($objectId, $siteUrl): ?string that resolves
+     *                                            the URL of an image object. Called for relation items whose
+     *                                            class_identifier is 'image' or 'image_with_related' when no
+     *                                            'url' is already present in the source item.
+     * @param callable|null $documentFilesResolver Optional callable($objectId): ?array that returns the list
+     *                                            of file items [{filename, url, displayName, ...}] attached to
+     *                                            a document object. Called for relation items whose
+     *                                            class_identifier is 'document' when no 'files' is already set.
      */
-    public function __construct($siteaccess, $instanceId = null, $tenantId = null, $imageUrlResolver = null)
+    public function __construct($siteaccess, $instanceId = null, $tenantId = null, $imageUrlResolver = null, $documentFilesResolver = null)
     {
-        $this->siteaccess        = $siteaccess;
-        $this->instanceId        = $instanceId !== null ? $instanceId : $siteaccess;
-        $this->tenantId          = $tenantId;
-        $this->imageUrlResolver  = is_callable($imageUrlResolver) ? $imageUrlResolver : null;
+        $this->siteaccess              = $siteaccess;
+        $this->instanceId              = $instanceId !== null ? $instanceId : $siteaccess;
+        $this->tenantId                = $tenantId;
+        $this->imageUrlResolver        = is_callable($imageUrlResolver) ? $imageUrlResolver : null;
+        $this->documentFilesResolver   = is_callable($documentFilesResolver) ? $documentFilesResolver : null;
     }
 
     /**
@@ -124,11 +129,12 @@ class OCWebHookKafkaPayloadFormatter
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $instanceId = $this->instanceId;
                         $siteUrl    = $meta['site_url'];
-                        $resolver   = $this->imageUrlResolver;
+                        $resolver         = $this->imageUrlResolver;
+                        $docFilesResolver = $this->documentFilesResolver;
                         $content = array_map(
-                            function ($item) use ($instanceId, $siteUrl, $resolver) {
+                            function ($item) use ($instanceId, $siteUrl, $resolver, $docFilesResolver) {
                                 if (isset($item['classIdentifier']) || isset($item['class_identifier'])) {
-                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId, $siteUrl, $resolver);
+                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId, $siteUrl, $resolver, $docFilesResolver);
                                 }
                                 // Direct file items (ocmultibinary): already have filename+url,
                                 // no classIdentifier — pass through as-is to avoid spurious
@@ -392,7 +398,7 @@ class OCWebHookKafkaPayloadFormatter
      * @param string $instanceId  e.g. "bugliano" — prefixed to object id
      * @return array
      */
-    private static function normalizeRelationItem(array $item, $instanceId = '', $siteUrl = null, $resolver = null)
+    private static function normalizeRelationItem(array $item, $instanceId = '', $siteUrl = null, $resolver = null, $docFilesResolver = null)
     {
         $classId  = isset($item['classIdentifier'])  ? $item['classIdentifier']
                   : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
@@ -428,6 +434,14 @@ class OCWebHookKafkaPayloadFormatter
             $resolved = call_user_func($resolver, $rawId, $siteUrl);
             if ($resolved !== null) {
                 $result['url'] = $resolved;
+            }
+        }
+
+        // Resolve attached files for document relation items when no files already present.
+        if ($docFilesResolver !== null && $classId === 'document' && !isset($result['files'])) {
+            $files = call_user_func($docFilesResolver, $rawId);
+            if (!empty($files)) {
+                $result['files'] = $files;
             }
         }
 

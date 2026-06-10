@@ -193,6 +193,9 @@ class OCWebHookPayloadBuilder
                         if (!is_array($item)) {
                             continue;
                         }
+                        if (self::isNoContentUrlType($item)) {
+                            continue;
+                        }
                         $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
                                 : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
                         if (!$nodeId) {
@@ -224,6 +227,9 @@ class OCWebHookPayloadBuilder
                     if (!is_array($item)) {
                         continue;
                     }
+                    if (self::isNoContentUrlType($item)) {
+                        continue;
+                    }
                     $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
                             : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
                     if (!$nodeId) {
@@ -244,5 +250,17 @@ class OCWebHookPayloadBuilder
             unset($attrValue);
         }
         unset($attributes);
+    }
+
+    /**
+     * Returns true for content types that should not receive content_url
+     * (they expose a file URL directly, so the page URL is not useful).
+     */
+    private static function isNoContentUrlType(array $item)
+    {
+        static $skip = ['image' => true, 'image_with_related' => true, 'file' => true];
+        $classId = isset($item['classIdentifier']) ? $item['classIdentifier']
+                 : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
+        return isset($skip[$classId]);
     }
 }

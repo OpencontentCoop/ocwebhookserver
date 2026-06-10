@@ -61,9 +61,9 @@ $payload = [
             'topics' => [
                 ['id' => 1, 'classIdentifier' => 'topic'],
             ],
-            // Formato A: wrapped {content:[...]} — deve continuare a funzionare
-            'files_wrapped' => ['content' => [
-                ['id' => 59, 'classIdentifier' => 'image', 'mainNodeId' => 444],
+            // Formato A: wrapped {content:[...]} con tipo non escluso (document)
+            'doc_wrapped' => ['content' => [
+                ['id' => 446, 'classIdentifier' => 'document', 'mainNodeId' => 444],
             ], 'type' => 'ezobjectrelationlist'],
         ],
     ],
@@ -81,9 +81,9 @@ assert_true(
 );
 
 $img = $data['image'][0];
-assert_true(
-    isset($img['content_url']) && strpos($img['content_url'], $baseUrl . '/') === 0,
-    'enrichRelationContentUrls raw: content_url aggiunto ad image'
+assert_false(
+    isset($img['content_url']),
+    'enrichRelationContentUrls raw: content_url NON aggiunto ad image (tipo escluso)'
 );
 
 // Item senza mainNodeId: nessun content_url
@@ -92,11 +92,11 @@ assert_false(
     'enrichRelationContentUrls raw: item senza mainNodeId non riceve content_url'
 );
 
-// Formato A (wrapped): ancora funzionante
-$wrapped = $data['files_wrapped']['content'][0];
+// Formato A (wrapped) con document: content_url aggiunto (tipo non escluso)
+$wrapped = $data['doc_wrapped']['content'][0];
 assert_true(
     isset($wrapped['content_url']) && strpos($wrapped['content_url'], $baseUrl . '/') === 0,
-    'enrichRelationContentUrls wrapped: content_url aggiunto nel formato wrapped'
+    'enrichRelationContentUrls wrapped: content_url aggiunto per document nel formato wrapped'
 );
 
 echo "\n";

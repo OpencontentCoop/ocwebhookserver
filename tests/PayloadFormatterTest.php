@@ -724,6 +724,26 @@ assert_eq($att['content_url'], 'https://www.comune.example.it/delibera', 'attach
 assert_false(isset($att['classIdentifier']), 'attachment: classIdentifier rimosso');
 assert_false(isset($att['languages']),       'attachment: languages rimosso');
 
+// documentFilesResolver: aggiunge files ai document items
+$docFiles = [
+    ['filename' => 'delibera.pdf', 'url' => 'https://www.comune.example.it/ocmultibinary/download/99/1/delibera.pdf',
+     'displayName' => 'Delibera N. 42', 'group' => '', 'text' => ''],
+];
+$fmWithDocResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune', null, null,
+    function ($objectId) use ($docFiles) { return $objectId == 99 ? $docFiles : null; }
+);
+$resWithDoc = $fmWithDocResolver->format($payloadWithFiles);
+$attWithFiles = $resWithDoc['entity']['data']['it-IT']['attachments'][0];
+assert_eq($attWithFiles['files'], $docFiles, 'document item: files aggiunti dal documentFilesResolver');
+assert_false(isset($attWithFiles['files'][0]['id']),       'document files: nessun id spurio');
+assert_false(isset($attWithFiles['files'][0]['taxonomy']), 'document files: nessun taxonomy spurio');
+
+// Senza documentFilesResolver: nessun files aggiunto
+$fmNoDocResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resNoDR = $fmNoDocResolver->format($payloadWithFiles);
+assert_false(isset($resNoDR['entity']['data']['it-IT']['attachments'][0]['files']),
+    'document item: files NON aggiunti senza documentFilesResolver');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 12: image URL resolver — relation items di tipo image/image_with_related
 // ricevono il campo "url" dalla callable iniettata nel costruttore.
