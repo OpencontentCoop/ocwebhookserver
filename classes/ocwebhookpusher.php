@@ -83,7 +83,7 @@ class OCWebHookPusher
                         // instanceId per entity.meta.id: usa EZ_INSTANCE (es. "opencity"),
                         // non il TenantId UUID — i due concetti sono separati.
                         $instanceId = OpenPABase::getCurrentSiteaccessIdentifier();
-                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId);
+                        $formatter = new OCWebHookKafkaPayloadFormatter($siteaccessName, $instanceId, $tenantId, [$this, 'resolveImageUrl']);
                         $payload = $formatter->format($payload);
                     }
 
@@ -188,6 +188,43 @@ class OCWebHookPusher
                 $job->registerRetryIfNeeded();
             }
         }
+    }
+
+    /**
+     * Resolve the URL of an image content object for inclusion in Kafka payloads.
+     * Used as the $imageUrlResolver callable passed to OCWebHookKafkaPayloadFormatter.
+     *
+     * @param int|string  $objectId  eZContentObject id
+     * @param string|null $siteUrl   Base site URL (e.g. "https://www.comune.example.it")
+     * @return string|null           Absolute image URL, or null if not resolvable
+     */
+    public function resolveImageUrl($objectId, $siteUrl)
+    {
+        $object = eZContentObject::fetch((int)$objectId);
+        if (!$object instanceof eZContentObject) {
+            return null;
+        }
+        foreach ($object->attribute('data_map') as $attribute) {
+            if ($attribute->attribute('data_type_string') !== 'ezimage') {
+                continue;
+            }
+            if (!$attribute->attribute('has_content')) {
+                continue;
+            }
+            $aliasHandler = $attribute->attribute('content');
+            if (!$aliasHandler instanceof eZImageAliasHandler) {
+                continue;
+            }
+            $original = $aliasHandler->imageAlias('original');
+            if (isset($original['url']) && $original['url']) {
+                $url = $original['url'];
+                if (strpos($url, 'http') !== 0 && $siteUrl !== null) {
+                    $url = rtrim($siteUrl, '/') . '/' . ltrim($url, '/');
+                }
+                return $url;
+            }
+        }
+        return null;
     }
 
     private function calculateSignature($payload, $secret)

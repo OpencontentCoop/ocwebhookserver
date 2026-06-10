@@ -671,6 +671,92 @@ assert_eq($fmPub->format($payloadPrivate)['entity']['meta']['is_public'], false,
 assert_null($fmPub->format($payloadNoPublic)['entity']['meta']['is_public'], 'is_public null when isPublic absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 12: image URL resolver — relation items di tipo image/image_with_related
+// ricevono il campo "url" dalla callable iniettata nel costruttore.
+// ─────────────────────────────────────────────────────────────────────────────
+
+$resolverCalls = [];
+$mockResolver = function ($objectId, $siteUrl) use (&$resolverCalls) {
+    $resolverCalls[] = ['objectId' => $objectId, 'siteUrl' => $siteUrl];
+    return $siteUrl . '/var/storage/images/' . $objectId . '.jpg';
+};
+
+$payloadWithImages = [
+    'metadata' => [
+        'id' => '700', 'classIdentifier' => 'article', 'languages' => ['it-IT'],
+        'baseUrl' => 'https://www.comune.example.it',
+    ],
+    'data' => [
+        'it-IT' => [
+            // image relation — deve ricevere "url" dal resolver
+            'photo' => ['content' => [
+                ['id' => 55, 'remoteId' => 'img-abc', 'classIdentifier' => 'image',
+                 'mainNodeId' => '555', 'name' => 'Foto evento'],
+            ], 'type' => 'ezobjectrelation'],
+            // image_with_related — stesso trattamento
+            'hero' => ['content' => [
+                ['id' => 66, 'remoteId' => 'img-def', 'classIdentifier' => 'image_with_related',
+                 'mainNodeId' => '666', 'name' => 'Hero image'],
+            ], 'type' => 'ezobjectrelation'],
+            // file relation — NON deve chiamare il resolver
+            'attachment' => ['content' => [
+                ['id' => 77, 'remoteId' => 'file-ghi', 'classIdentifier' => 'file',
+                 'mainNodeId' => '777', 'name' => 'Allegato.pdf'],
+            ], 'type' => 'ezbinaryfilecollection'],
+            // image con "url" già presente — resolver NON deve essere chiamato (pass-through)
+            'logo' => ['content' => [
+                ['id' => 88, 'remoteId' => 'img-already', 'classIdentifier' => 'image',
+                 'mainNodeId' => '888', 'name' => 'Logo', 'url' => 'https://cdn.example.it/logo.png'],
+            ], 'type' => 'ezobjectrelation'],
+        ],
+    ],
+];
+
+$fmResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune', null, $mockResolver);
+$resResolver = $fmResolver->format($payloadWithImages);
+$dataImg = $resResolver['entity']['data']['it-IT'];
+
+// photo: url risolto dal resolver
+assert_eq(
+    $dataImg['photo'][0]['url'],
+    'https://www.comune.example.it/var/storage/images/55.jpg',
+    'image item: url aggiunto dal resolver'
+);
+assert_eq($dataImg['photo'][0]['type_id'], 'image',       'image item: type_id corretto');
+assert_eq($dataImg['photo'][0]['title'],   'Foto evento', 'image item: title corretto');
+
+// hero (image_with_related): url risolto
+assert_eq(
+    $dataImg['hero'][0]['url'],
+    'https://www.comune.example.it/var/storage/images/66.jpg',
+    'image_with_related item: url aggiunto dal resolver'
+);
+
+// attachment (file): resolver NON chiamato, nessun url aggiunto
+assert_false(isset($dataImg['attachment'][0]['url']), 'file item: url NON aggiunto dal resolver');
+
+// logo: url già presente → resolver NON chiamato, pass-through
+assert_eq(
+    $dataImg['logo'][0]['url'],
+    'https://cdn.example.it/logo.png',
+    'image item con url preesistente: pass-through, resolver non chiamato'
+);
+
+// Resolver chiamato esattamente per photo (55) e hero (66), non per file (77) né logo (88)
+$calledIds = array_column($resolverCalls, 'objectId');
+sort($calledIds);
+assert_eq($calledIds, [55, 66], 'Resolver chiamato esattamente per i 2 item senza url preesistente');
+assert_eq($resolverCalls[0]['siteUrl'], 'https://www.comune.example.it', 'siteUrl passato correttamente al resolver');
+
+// Senza resolver: nessun url aggiunto, comportamento invariato
+$fmNoResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resNoResolver = $fmNoResolver->format($payloadWithImages);
+assert_false(
+    isset($resNoResolver['entity']['data']['it-IT']['photo'][0]['url']),
+    'Senza resolver: url NON aggiunto agli image item'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 

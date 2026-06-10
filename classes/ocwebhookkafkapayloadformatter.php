@@ -38,16 +38,21 @@ class OCWebHookKafkaPayloadFormatter
     private $tenantId;
 
     /**
-     * @param string      $siteaccess  eZ Publish siteaccess name (e.g. "frontend")
-     * @param string|null $instanceId  Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
-     *                                 Defaults to $siteaccess when null.
-     * @param string|null $tenantId    Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
+     * @param string      $siteaccess        eZ Publish siteaccess name (e.g. "frontend")
+     * @param string|null $instanceId        Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
+     *                                       Defaults to $siteaccess when null.
+     * @param string|null $tenantId          Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id).
+     * @param callable|null $imageUrlResolver Optional callable($objectId, $siteUrl): ?string that resolves
+     *                                        the URL of an image object. Called for relation items whose
+     *                                        class_identifier is 'image' or 'image_with_related' when no
+     *                                        'url' is already present in the source item.
      */
-    public function __construct($siteaccess, $instanceId = null, $tenantId = null)
+    public function __construct($siteaccess, $instanceId = null, $tenantId = null, $imageUrlResolver = null)
     {
-        $this->siteaccess = $siteaccess;
-        $this->instanceId = $instanceId !== null ? $instanceId : $siteaccess;
-        $this->tenantId   = $tenantId;
+        $this->siteaccess        = $siteaccess;
+        $this->instanceId        = $instanceId !== null ? $instanceId : $siteaccess;
+        $this->tenantId          = $tenantId;
+        $this->imageUrlResolver  = is_callable($imageUrlResolver) ? $imageUrlResolver : null;
     }
 
     /**
@@ -119,10 +124,11 @@ class OCWebHookKafkaPayloadFormatter
                     if (is_array($content) && isset($content[0]) && is_array($content[0])) {
                         $instanceId = $this->instanceId;
                         $siteUrl    = $meta['site_url'];
+                        $resolver   = $this->imageUrlResolver;
                         $content = array_map(
-                            function ($item) use ($instanceId, $siteUrl) {
+                            function ($item) use ($instanceId, $siteUrl, $resolver) {
                                 if (isset($item['classIdentifier']) || isset($item['class_identifier'])) {
-                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId);
+                                    return OCWebHookKafkaPayloadFormatter::normalizeRelationItem($item, $instanceId, $siteUrl, $resolver);
                                 }
                                 return OCWebHookKafkaPayloadFormatter::normalizeTaxonomyItem($item, $siteUrl);
                             },
@@ -380,7 +386,7 @@ class OCWebHookKafkaPayloadFormatter
      * @param string $instanceId  e.g. "bugliano" — prefixed to object id
      * @return array
      */
-    private static function normalizeRelationItem(array $item, $instanceId = '')
+    private static function normalizeRelationItem(array $item, $instanceId = '', $siteUrl = null, $resolver = null)
     {
         $classId  = isset($item['classIdentifier'])  ? $item['classIdentifier']
                   : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
@@ -407,6 +413,15 @@ class OCWebHookKafkaPayloadFormatter
         foreach ($item as $key => $value) {
             if (!isset($skip[$key])) {
                 $result[$key] = $value;
+            }
+        }
+
+        // Resolve image URL for image-type relation items when no url is already present.
+        $imageTypes = ['image', 'image_with_related'];
+        if ($resolver !== null && in_array($classId, $imageTypes, true) && !isset($result['url'])) {
+            $resolved = call_user_func($resolver, $rawId, $siteUrl);
+            if ($resolved !== null) {
+                $result['url'] = $resolved;
             }
         }
 
