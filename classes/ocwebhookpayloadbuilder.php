@@ -30,6 +30,25 @@ class OCWebHookPayloadBuilder
             $urlAlias = $mainNode->urlAlias();
             $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
             $payload['metadata']['isPublic'] = self::checkIsPublic($mainNode);
+
+            // tree_placement: remote_id del parent diretto + tutti gli antenati
+            $parentNodeId = (int)$mainNode->attribute('parent_node_id');
+            $parentNode   = eZContentObjectTreeNode::fetch($parentNodeId);
+            if ($parentNode instanceof eZContentObjectTreeNode) {
+                $payload['metadata']['mainParentRemoteId'] = $parentNode->attribute('object')->attribute('remote_id');
+            }
+            // path_string es. "/1/2/70/93/444/" → antenati = [2, 70, 93] (senza root 1 e il nodo stesso)
+            $pathParts = array_values(array_filter(explode('/', $mainNode->attribute('path_string'))));
+            array_pop($pathParts); // rimuove il nodo stesso
+            array_shift($pathParts); // rimuove root (1)
+            $parentRemoteIds = [];
+            foreach ($pathParts as $ancestorNodeId) {
+                $aNode = eZContentObjectTreeNode::fetch((int)$ancestorNodeId);
+                if ($aNode instanceof eZContentObjectTreeNode) {
+                    $parentRemoteIds[] = $aNode->attribute('object')->attribute('remote_id');
+                }
+            }
+            $payload['metadata']['parentRemoteIds'] = $parentRemoteIds;
         } else {
             $payload['metadata']['isPublic'] = false;
         }
