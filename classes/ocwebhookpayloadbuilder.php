@@ -30,6 +30,25 @@ class OCWebHookPayloadBuilder
             $urlAlias = $mainNode->urlAlias();
             $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
             $payload['metadata']['isPublic'] = self::checkIsPublic($mainNode);
+
+            // tree_placement: remote_id del parent diretto + tutti gli antenati
+            $parentNodeId = (int)$mainNode->attribute('parent_node_id');
+            $parentNode   = eZContentObjectTreeNode::fetch($parentNodeId);
+            if ($parentNode instanceof eZContentObjectTreeNode) {
+                $payload['metadata']['mainParentRemoteId'] = $parentNode->attribute('object')->attribute('remote_id');
+            }
+            // path_string es. "/1/2/70/93/444/" → antenati = [2, 70, 93] (senza root 1 e il nodo stesso)
+            $pathParts = array_values(array_filter(explode('/', $mainNode->attribute('path_string'))));
+            array_pop($pathParts); // rimuove il nodo stesso
+            array_shift($pathParts); // rimuove root (1)
+            $parentRemoteIds = [];
+            foreach ($pathParts as $ancestorNodeId) {
+                $aNode = eZContentObjectTreeNode::fetch((int)$ancestorNodeId);
+                if ($aNode instanceof eZContentObjectTreeNode) {
+                    $parentRemoteIds[] = $aNode->attribute('object')->attribute('remote_id');
+                }
+            }
+            $payload['metadata']['parentRemoteIds'] = $parentRemoteIds;
         } else {
             $payload['metadata']['isPublic'] = false;
         }
@@ -178,19 +197,56 @@ class OCWebHookPayloadBuilder
                 continue;
             }
             foreach ($attributes as $attrName => &$attrValue) {
-                $items = null;
-                if (is_array($attrValue) && array_key_exists('content', $attrValue)
-                    && is_array($attrValue['content'])
-                    && isset($attrValue['content'][0])
-                    && is_array($attrValue['content'][0])
+                // Format B: raw numeric array [{id, classIdentifier, mainNodeId, ...}, ...]
+                // DefaultEnvironmentSettings::filterContent() returns attributes in this format.
+                // Handled FIRST with its own loop to avoid PHP reference-poison: assigning
+                // $items = &$attrValue and then $items = null on the next iteration would
+                // null out $attrValue (and thus the attribute in the payload).
+                if (is_array($attrValue)
+                    && isset($attrValue[0])
+                    && is_array($attrValue[0])
+                    && !array_key_exists('content', $attrValue)
+                    && (isset($attrValue[0]['mainNodeId']) || isset($attrValue[0]['main_node_id']))
                 ) {
-                    $items = &$attrValue['content'];
-                }
-                if ($items === null) {
+                    foreach ($attrValue as &$item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        if (self::isNoContentUrlType($item)) {
+                            continue;
+                        }
+                        $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
+                                : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
+                        if (!$nodeId) {
+                            continue;
+                        }
+                        if (!array_key_exists($nodeId, $nodeUrlCache)) {
+                            $node = eZContentObjectTreeNode::fetch($nodeId);
+                            $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
+                                ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
+                                : null;
+                        }
+                        if ($nodeUrlCache[$nodeId] !== null) {
+                            $item['content_url'] = $nodeUrlCache[$nodeId];
+                        }
+                    }
+                    unset($item);
                     continue;
                 }
-                foreach ($items as &$item) {
+                // Format A: wrapped {content: [...], type: "..."} — ocopendata full format
+                if (!is_array($attrValue)
+                    || !array_key_exists('content', $attrValue)
+                    || !is_array($attrValue['content'])
+                    || !isset($attrValue['content'][0])
+                    || !is_array($attrValue['content'][0])
+                ) {
+                    continue;
+                }
+                foreach ($attrValue['content'] as &$item) {
                     if (!is_array($item)) {
+                        continue;
+                    }
+                    if (self::isNoContentUrlType($item)) {
                         continue;
                     }
                     $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
@@ -213,5 +269,17 @@ class OCWebHookPayloadBuilder
             unset($attrValue);
         }
         unset($attributes);
+    }
+
+    /**
+     * Returns true for content types that should not receive content_url
+     * (they expose a file URL directly, so the page URL is not useful).
+     */
+    private static function isNoContentUrlType(array $item)
+    {
+        static $skip = ['image' => true, 'image_with_related' => true, 'file' => true];
+        $classId = isset($item['classIdentifier']) ? $item['classIdentifier']
+                 : (isset($item['class_identifier']) ? $item['class_identifier'] : null);
+        return isset($skip[$classId]);
     }
 }

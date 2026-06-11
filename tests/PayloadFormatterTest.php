@@ -671,6 +671,166 @@ assert_eq($fmPub->format($payloadPrivate)['entity']['meta']['is_public'], false,
 assert_null($fmPub->format($payloadNoPublic)['entity']['meta']['is_public'], 'is_public null when isPublic absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 12b: file items (ocmultibinary) passano attraverso senza normalizzazione
+// — nessun id/title/taxonomy spurio aggiunto da normalizeTaxonomyItem
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadWithFiles = [
+    'metadata' => ['id' => '800', 'classIdentifier' => 'article', 'languages' => ['it-IT'],
+                   'baseUrl' => 'https://www.comune.example.it'],
+    'data' => [
+        'it-IT' => [
+            // file diretto (ocmultibinary): ha filename+url, nessun classIdentifier
+            'files' => [
+                ['filename' => 'relazione.pdf',
+                 'url' => 'https://www.comune.example.it/ocmultibinary/download/800/1/relazione.pdf',
+                 'displayName' => 'Relazione annuale', 'group' => '', 'text' => ''],
+                ['filename' => 'allegato.docx',
+                 'url' => 'https://www.comune.example.it/ocmultibinary/download/800/2/allegato.docx',
+                 'displayName' => 'Allegato B', 'group' => '', 'text' => ''],
+            ],
+            // relazione a documento (classIdentifier presente) — deve usare normalizeRelationItem
+            'attachment' => [
+                ['id' => 99, 'remoteId' => 'doc-xyz', 'classIdentifier' => 'document',
+                 'mainNodeId' => '999', 'name' => ['it-IT' => 'Delibera'],
+                 'content_url' => 'https://www.comune.example.it/delibera',
+                 'languages' => ['it-IT'], 'link' => 'read/99'],
+            ],
+        ],
+    ],
+];
+
+$fmFiles = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resFiles = $fmFiles->format($payloadWithFiles);
+$dFiles   = $resFiles['entity']['data']['it-IT'];
+
+// files: pass-through diretto — nessun campo spurio
+$file0 = $dFiles['files'][0];
+assert_eq($file0['filename'],    'relazione.pdf',  'file item: filename preservato');
+assert_eq($file0['url'],         'https://www.comune.example.it/ocmultibinary/download/800/1/relazione.pdf',
+    'file item: url preservato');
+assert_eq($file0['displayName'], 'Relazione annuale', 'file item: displayName preservato');
+assert_false(isset($file0['id']),       'file item: nessun id spurio da normalizeTaxonomyItem');
+assert_false(isset($file0['title']),    'file item: nessun title spurio');
+assert_false(isset($file0['taxonomy']), 'file item: nessun taxonomy spurio');
+assert_eq(count($dFiles['files']), 2, 'file item: entrambi i file presenti');
+
+// attachment (rinominato in attachments dalla FieldMap): normalizzato correttamente
+$att = $dFiles['attachments'][0];
+assert_eq($att['type_id'],     'document',  'attachment: type_id corretto');
+assert_eq($att['id'],          'comune:99', 'attachment: id compound');
+assert_eq($att['title'],       'Delibera',  'attachment: title risolto dalla lingua');
+assert_eq($att['content_url'], 'https://www.comune.example.it/delibera', 'attachment: content_url pass-through');
+assert_false(isset($att['classIdentifier']), 'attachment: classIdentifier rimosso');
+assert_false(isset($att['languages']),       'attachment: languages rimosso');
+
+// documentFilesResolver: aggiunge files ai document items
+$docFiles = [
+    ['filename' => 'delibera.pdf', 'url' => 'https://www.comune.example.it/ocmultibinary/download/99/1/delibera.pdf',
+     'displayName' => 'Delibera N. 42', 'group' => '', 'text' => ''],
+];
+$fmWithDocResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune', null, null,
+    function ($objectId) use ($docFiles) { return $objectId == 99 ? $docFiles : null; }
+);
+$resWithDoc = $fmWithDocResolver->format($payloadWithFiles);
+$attWithFiles = $resWithDoc['entity']['data']['it-IT']['attachments'][0];
+assert_eq($attWithFiles['files'], $docFiles, 'document item: files aggiunti dal documentFilesResolver');
+assert_false(isset($attWithFiles['files'][0]['id']),       'document files: nessun id spurio');
+assert_false(isset($attWithFiles['files'][0]['taxonomy']), 'document files: nessun taxonomy spurio');
+
+// Senza documentFilesResolver: nessun files aggiunto
+$fmNoDocResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resNoDR = $fmNoDocResolver->format($payloadWithFiles);
+assert_false(isset($resNoDR['entity']['data']['it-IT']['attachments'][0]['files']),
+    'document item: files NON aggiunti senza documentFilesResolver');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 12: image URL resolver — relation items di tipo image/image_with_related
+// ricevono il campo "url" dalla callable iniettata nel costruttore.
+// ─────────────────────────────────────────────────────────────────────────────
+
+$resolverCalls = [];
+$mockResolver = function ($objectId, $siteUrl) use (&$resolverCalls) {
+    $resolverCalls[] = ['objectId' => $objectId, 'siteUrl' => $siteUrl];
+    return $siteUrl . '/var/storage/images/' . $objectId . '.jpg';
+};
+
+$payloadWithImages = [
+    'metadata' => [
+        'id' => '700', 'classIdentifier' => 'article', 'languages' => ['it-IT'],
+        'baseUrl' => 'https://www.comune.example.it',
+    ],
+    'data' => [
+        'it-IT' => [
+            // image relation — deve ricevere "url" dal resolver
+            'photo' => ['content' => [
+                ['id' => 55, 'remoteId' => 'img-abc', 'classIdentifier' => 'image',
+                 'mainNodeId' => '555', 'name' => 'Foto evento'],
+            ], 'type' => 'ezobjectrelation'],
+            // image_with_related — stesso trattamento
+            'hero' => ['content' => [
+                ['id' => 66, 'remoteId' => 'img-def', 'classIdentifier' => 'image_with_related',
+                 'mainNodeId' => '666', 'name' => 'Hero image'],
+            ], 'type' => 'ezobjectrelation'],
+            // file relation — NON deve chiamare il resolver
+            'attachment' => ['content' => [
+                ['id' => 77, 'remoteId' => 'file-ghi', 'classIdentifier' => 'file',
+                 'mainNodeId' => '777', 'name' => 'Allegato.pdf'],
+            ], 'type' => 'ezbinaryfilecollection'],
+            // image con "url" già presente — resolver NON deve essere chiamato (pass-through)
+            'logo' => ['content' => [
+                ['id' => 88, 'remoteId' => 'img-already', 'classIdentifier' => 'image',
+                 'mainNodeId' => '888', 'name' => 'Logo', 'url' => 'https://cdn.example.it/logo.png'],
+            ], 'type' => 'ezobjectrelation'],
+        ],
+    ],
+];
+
+$fmResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune', null, $mockResolver);
+$resResolver = $fmResolver->format($payloadWithImages);
+$dataImg = $resResolver['entity']['data']['it-IT'];
+
+// photo: url risolto dal resolver
+assert_eq(
+    $dataImg['photo'][0]['url'],
+    'https://www.comune.example.it/var/storage/images/55.jpg',
+    'image item: url aggiunto dal resolver'
+);
+assert_eq($dataImg['photo'][0]['type_id'], 'image',       'image item: type_id corretto');
+assert_eq($dataImg['photo'][0]['title'],   'Foto evento', 'image item: title corretto');
+
+// hero (image_with_related): url risolto
+assert_eq(
+    $dataImg['hero'][0]['url'],
+    'https://www.comune.example.it/var/storage/images/66.jpg',
+    'image_with_related item: url aggiunto dal resolver'
+);
+
+// attachment (file): resolver NON chiamato, nessun url aggiunto
+assert_false(isset($dataImg['attachment'][0]['url']), 'file item: url NON aggiunto dal resolver');
+
+// logo: url già presente → resolver NON chiamato, pass-through
+assert_eq(
+    $dataImg['logo'][0]['url'],
+    'https://cdn.example.it/logo.png',
+    'image item con url preesistente: pass-through, resolver non chiamato'
+);
+
+// Resolver chiamato esattamente per photo (55) e hero (66), non per file (77) né logo (88)
+$calledIds = array_column($resolverCalls, 'objectId');
+sort($calledIds);
+assert_eq($calledIds, [55, 66], 'Resolver chiamato esattamente per i 2 item senza url preesistente');
+assert_eq($resolverCalls[0]['siteUrl'], 'https://www.comune.example.it', 'siteUrl passato correttamente al resolver');
+
+// Senza resolver: nessun url aggiunto, comportamento invariato
+$fmNoResolver = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resNoResolver = $fmNoResolver->format($payloadWithImages);
+assert_false(
+    isset($resNoResolver['entity']['data']['it-IT']['photo'][0]['url']),
+    'Senza resolver: url NON aggiunto agli image item'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
