@@ -37,6 +37,12 @@ class OCWebHookKafkaPayloadFormatter
     /** @var string|null Tenant UUID from KafkaSettings.TenantId (entity.meta.tenant_id) */
     private $tenantId;
 
+    /** @var callable|null Resolves image object URL: callable($objectId, $siteUrl): ?string */
+    private $imageUrlResolver;
+
+    /** @var callable|null Resolves document attached files: callable($objectId): ?array */
+    private $documentFilesResolver;
+
     /**
      * @param string      $siteaccess        eZ Publish siteaccess name (e.g. "frontend")
      * @param string|null $instanceId        Instance identifier for entity.meta.id (e.g. EZ_INSTANCE).
