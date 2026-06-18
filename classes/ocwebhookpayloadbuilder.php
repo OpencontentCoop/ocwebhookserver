@@ -22,7 +22,20 @@ class OCWebHookPayloadBuilder
         $content = Content::createFromEzContentObject($object);
         $payload = $currentEnvironment->filterContent($content);
 
-        $payload['metadata']['baseUrl']        = eZSys::serverURL();
+        // ocopendata ordina le lingue per ID nel DB (ezcontentlanguage), non rispettando
+        // quale sia marcata come "principale" (initial language) nell'oggetto eZ.
+        // I consumer Kafka usano languages[0] come lingua principale per meta.name e
+        // per accedere ai dati: bisogna portare la lingua iniziale in prima posizione.
+        $initialLang = $object->initialLanguage();
+        if ($initialLang instanceof eZContentLanguage) {
+            $langs = isset($payload['metadata']['languages']) ? (array)$payload['metadata']['languages'] : [];
+            $payload['metadata']['languages'] = self::reorderLanguagesInitialFirst(
+                $langs,
+                $initialLang->attribute('locale')
+            );
+        }
+
+        $payload['metadata']['baseUrl']        = self::forceHttps(eZSys::serverURL());
         $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
         $mainNode = $object->mainNode();
@@ -94,7 +107,7 @@ class OCWebHookPayloadBuilder
                     $basePath  = $endpointUrl . implode('/', $parts) . '/';
                     $nameSlug  = \eZCharTransform::instance()
                         ->transformByGroup($object->attribute('name'), 'urlalias');
-                    $payload['metadata']['apiUrl'] = $basePath . $remoteId . '#' . $nameSlug;
+                    $payload['metadata']['apiUrl'] = self::forceHttps($basePath . $remoteId . '#' . $nameSlug);
                 }
             } catch (\Exception $e) {
                 eZLog::write(__METHOD__ . ': apiUrl build failed: ' . $e->getMessage(), 'webhook.log');
@@ -269,6 +282,38 @@ class OCWebHookPayloadBuilder
             unset($attrValue);
         }
         unset($attributes);
+    }
+
+    /**
+     * Forza il protocollo HTTPS su un URL.
+     * Logica pura, senza dipendenze eZ — estraibile e testabile unitariamente.
+     * Necessario perché eZSys::serverURL() e ocopenapi restituiscono http://
+     * quando il sito gira dietro un reverse proxy con SSL termination.
+     */
+    public static function forceHttps($url)
+    {
+        if (is_string($url) && strncmp($url, 'http://', 7) === 0) {
+            return 'https://' . substr($url, 7);
+        }
+        return $url;
+    }
+
+    /**
+     * Porta la lingua iniziale in prima posizione nell'array languages.
+     * Logica pura, senza dipendenze eZ — estraibile e testabile unitariamente.
+     */
+    public static function reorderLanguagesInitialFirst(array $languages, $initialLocale)
+    {
+        if (count($languages) <= 1) {
+            return $languages;
+        }
+        $key = array_search($initialLocale, $languages, true);
+        if ($key === false || $key === 0) {
+            return $languages;
+        }
+        unset($languages[$key]);
+        array_unshift($languages, $initialLocale);
+        return array_values($languages);
     }
 
     /**

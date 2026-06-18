@@ -831,6 +831,94 @@ assert_false(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TEST 17: URL in https — site_url, content_url, api_url nel formatter
+// Il formatter riceve gli URL già normalizzati dal builder (forceHttps).
+// Questo test verifica che il formatter li passi correttamente a entity.meta.
+// ─────────────────────────────────────────────────────────────────────────────
+
+$payloadHttpUrls = [
+    'metadata' => [
+        'id'         => '750',
+        'languages'  => ['ita-IT'],
+        'name'       => ['ita-IT' => 'Test'],
+        'baseUrl'    => 'https://www.comune.example.it',
+        'contentUrl' => 'https://www.comune.example.it/notizie/test',
+        'apiUrl'     => 'https://www.comune.example.it/api/openapi/novita/notizie/abc#test',
+    ],
+    'data' => [],
+];
+
+$fmHttps  = new OCWebHookKafkaPayloadFormatter('frontend', 'comune');
+$resHttps = $fmHttps->format($payloadHttpUrls);
+$metaHttps = $resHttps['entity']['meta'];
+
+assert_eq($metaHttps['site_url'],    'https://www.comune.example.it',                                      'site_url è https');
+assert_eq($metaHttps['content_url'], 'https://www.comune.example.it/notizie/test',                        'content_url è https');
+assert_eq($metaHttps['api_url'],     'https://www.comune.example.it/api/openapi/novita/notizie/abc#test', 'api_url è https');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 17b: bilingue ita-IT/ger-DE — meta.name dalla lingua principale
+//
+// Regression: OCWebHookPayloadBuilder::build() deve riordinare languages[] in modo
+// che la lingua iniziale (principale nel CMS) sia sempre a languages[0].
+// ocopendata la ordina per ID DB — su siti bilingue con ger-DE aggiunta prima di
+// ita-IT nel sistema, arriva ger-DE first, e meta.name finisce in tedesco anche se
+// la lingua principale è italiana.
+// Il formatter usa correttamente languages[0] per derivare meta.name: questo test
+// verifica il contratto a valle, che il builder deve rispettare producendo il
+// payload corretto.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Payload come prodotto dal builder DOPO il fix: ita-IT (lingua principale) è first
+$payloadBilingual = [
+    'metadata' => [
+        'id'              => '999',
+        'classIdentifier' => 'argomento',
+        'languages'       => ['ita-IT', 'ger-DE'],
+        'name'            => ['ita-IT' => 'Elezioni', 'ger-DE' => 'Wahlverfahren'],
+    ],
+    'data' => [
+        'ita-IT' => ['name' => ['content' => 'Elezioni',      'type' => 'ezstring']],
+        'ger-DE' => ['name' => ['content' => 'Wahlverfahren', 'type' => 'ezstring']],
+    ],
+];
+
+$fmBilingual  = new OCWebHookKafkaPayloadFormatter('frontend', 'arco');
+$resBilingual = $fmBilingual->format($payloadBilingual);
+$metaBi       = $resBilingual['entity']['meta'];
+
+assert_eq($metaBi['languages'][0], 'ita-IT',    'Bilingue: languages[0] è la lingua principale (ita-IT)');
+assert_eq($metaBi['name'],         'Elezioni',  'Bilingue: meta.name dall\'italiano (lingua principale)');
+assert_eq($metaBi['languages'],    ['ita-IT', 'ger-DE'], 'Bilingue: entrambe le lingue in meta.languages');
+assert_true(
+    isset($resBilingual['entity']['data']['ita-IT']) && isset($resBilingual['entity']['data']['ger-DE']),
+    'Bilingue: entity.data contiene entrambe le traduzioni'
+);
+
+// Payload come prodotto dal builder PRIMA del fix: ger-DE first (DB order) → meta.name sbagliato
+// Questo blocco documenta il comportamento atteso dal formatter quando riceve lingue in ordine errato,
+// e serve da evidenza del bug originale.
+$payloadWrongOrder = [
+    'metadata' => [
+        'id'              => '998',
+        'classIdentifier' => 'argomento',
+        'languages'       => ['ger-DE', 'ita-IT'],           // ordine errato (pre-fix)
+        'name'            => ['ita-IT' => 'Elezioni', 'ger-DE' => 'Wahlverfahren'],
+    ],
+    'data' => [
+        'ger-DE' => ['name' => ['content' => 'Wahlverfahren', 'type' => 'ezstring']],
+        'ita-IT' => ['name' => ['content' => 'Elezioni',      'type' => 'ezstring']],
+    ],
+];
+
+$resWrong = $fmBilingual->format($payloadWrongOrder);
+assert_eq(
+    $resWrong['entity']['meta']['name'],
+    'Wahlverfahren',
+    'Bilingue pre-fix: meta.name è tedesco quando ger-DE è languages[0] (documenta il bug originale)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 
