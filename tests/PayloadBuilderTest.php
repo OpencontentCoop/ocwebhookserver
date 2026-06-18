@@ -11,6 +11,24 @@ class eZContentObjectVersion {
     public function attribute($k) { return $k === 'creator_id' ? 10 : null; }
 }
 
+class eZContentClass {
+    private $identifier;
+    private $names; // locale → name
+    public function __construct($identifier, array $names = []) {
+        $this->identifier = $identifier;
+        $this->names      = $names;
+    }
+    public function attribute($k) {
+        if ($k === 'remote_id')   return 'class-remote-' . $this->identifier;
+        if ($k === 'identifier')  return $this->identifier;
+        return null;
+    }
+    public function name($locale = false) {
+        if ($locale === false) return reset($this->names) ?: '';
+        return isset($this->names[$locale]) ? $this->names[$locale] : false;
+    }
+}
+
 class eZContentObject {
     private $id;
     private $data;
@@ -28,7 +46,13 @@ class eZContentObject {
     public function attribute($k) { return $this->data[$k] ?? null; }
     public function currentVersion() { return new eZContentObjectVersion(); }
     public function mainNode() { return null; }
-    public function name() { return $this->data['name']; }
+    public function name($version = false, $locale = false) { return $this->data['name']; }
+    public function contentClass() {
+        return new eZContentClass(
+            $this->data['class_identifier'] ?? 'article',
+            ['ita-IT' => 'Articolo', 'eng-GB' => 'Article']
+        );
+    }
 }
 
 $PASSED = 0; $FAILED = 0;
@@ -118,6 +142,8 @@ $min = OCWebHookPayloadBuilder::buildMinimal($obj);
 assert_eq($min['metadata']['id'],              42,        'buildMinimal: id');
 assert_eq($min['metadata']['remoteId'],        'remote-42','buildMinimal: remoteId');
 assert_eq($min['metadata']['classIdentifier'], 'article', 'buildMinimal: classIdentifier');
+assert_eq($min['metadata']['classRemoteId'],   'class-remote-article', 'buildMinimal: classRemoteId');
+assert_eq($min['metadata']['classNames'],      ['ita-IT' => 'Articolo'], 'buildMinimal: classNames solo nelle lingue del contenuto (translationList)');
 assert_eq($min['metadata']['currentVersion'],  3,         'buildMinimal: currentVersion');
 assert_eq($min['metadata']['isPublic'],        false,     'buildMinimal: isPublic always false (oggetto in eliminazione)');
 assert_eq($min['data'],                        [],        'buildMinimal: data is empty');

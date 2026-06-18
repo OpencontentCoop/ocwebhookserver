@@ -38,30 +38,61 @@ class OCWebHookPayloadBuilder
         $payload['metadata']['baseUrl']        = self::forceHttps(eZSys::serverURL());
         $payload['metadata']['currentVersion'] = (int)$object->attribute('current_version');
 
+        // Nomi tradotti della content class → meta.type nel payload Kafka.
+        $contentClass = $object->contentClass();
+        if ($contentClass instanceof eZContentClass) {
+            $payload['metadata']['classRemoteId'] = $contentClass->attribute('remote_id');
+            $classNames = [];
+            foreach ($payload['metadata']['languages'] as $locale) {
+                $name = $contentClass->name($locale);
+                if ($name !== false && $name !== null && $name !== '') {
+                    $classNames[$locale] = $name;
+                }
+            }
+            $payload['metadata']['classNames'] = $classNames;
+        }
+
         $mainNode = $object->mainNode();
         if ($mainNode instanceof eZContentObjectTreeNode) {
             $urlAlias = $mainNode->urlAlias();
             $payload['metadata']['contentUrl'] = $payload['metadata']['baseUrl'] . '/' . ltrim($urlAlias, '/');
             $payload['metadata']['isPublic'] = self::checkIsPublic($mainNode);
 
-            // tree_placement: remote_id del parent diretto + tutti gli antenati
+            // tree_placement: parent diretto + antenati, ciascuno con remote_id e nomi tradotti.
+            $langs        = $payload['metadata']['languages'];
             $parentNodeId = (int)$mainNode->attribute('parent_node_id');
             $parentNode   = eZContentObjectTreeNode::fetch($parentNodeId);
             if ($parentNode instanceof eZContentObjectTreeNode) {
-                $payload['metadata']['mainParentRemoteId'] = $parentNode->attribute('object')->attribute('remote_id');
+                $parentObj  = $parentNode->attribute('object');
+                $parentEntry = ['remote_id' => $parentObj->attribute('remote_id')];
+                foreach ($langs as $locale) {
+                    $n = $parentObj->name(false, $locale);
+                    if ($n !== false && $n !== null && $n !== '') {
+                        $parentEntry[$locale] = $n;
+                    }
+                }
+                $payload['metadata']['mainParentNode'] = $parentEntry;
             }
             // path_string es. "/1/2/70/93/444/" → antenati = [2, 70, 93] (senza root 1 e il nodo stesso)
             $pathParts = array_values(array_filter(explode('/', $mainNode->attribute('path_string'))));
             array_pop($pathParts); // rimuove il nodo stesso
             array_shift($pathParts); // rimuove root (1)
-            $parentRemoteIds = [];
+            $parentNodes = [];
             foreach ($pathParts as $ancestorNodeId) {
                 $aNode = eZContentObjectTreeNode::fetch((int)$ancestorNodeId);
                 if ($aNode instanceof eZContentObjectTreeNode) {
-                    $parentRemoteIds[] = $aNode->attribute('object')->attribute('remote_id');
+                    $aObj  = $aNode->attribute('object');
+                    $entry = ['remote_id' => $aObj->attribute('remote_id')];
+                    foreach ($langs as $locale) {
+                        $n = $aObj->name(false, $locale);
+                        if ($n !== false && $n !== null && $n !== '') {
+                            $entry[$locale] = $n;
+                        }
+                    }
+                    $parentNodes[] = $entry;
                 }
             }
-            $payload['metadata']['parentRemoteIds'] = $parentRemoteIds;
+            $payload['metadata']['parentNodes'] = $parentNodes;
         } else {
             $payload['metadata']['isPublic'] = false;
         }
@@ -129,11 +160,26 @@ class OCWebHookPayloadBuilder
         $version   = $object->currentVersion();
         $languages = $version instanceof eZContentObjectVersion ? $version->translationList(false, false) : [];
 
+        $classRemoteId = null;
+        $classNames    = [];
+        $contentClass  = $object->contentClass();
+        if ($contentClass instanceof eZContentClass) {
+            $classRemoteId = $contentClass->attribute('remote_id');
+            foreach ($languages as $locale) {
+                $name = $contentClass->name($locale);
+                if ($name !== false && $name !== null && $name !== '') {
+                    $classNames[$locale] = $name;
+                }
+            }
+        }
+
         return [
             'metadata' => [
                 'id'              => (int)$object->attribute('id'),
                 'remoteId'        => $object->attribute('remote_id'),
                 'classIdentifier' => $object->attribute('class_identifier'),
+                'classRemoteId'   => $classRemoteId,
+                'classNames'      => $classNames,
                 'currentVersion'  => (int)$object->attribute('current_version'),
                 'languages'       => $languages,
                 'isPublic'        => false, // oggetto in fase di eliminazione

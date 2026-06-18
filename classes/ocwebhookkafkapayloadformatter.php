@@ -77,43 +77,58 @@ class OCWebHookKafkaPayloadFormatter
         $metadata = isset($ocPayload['metadata']) ? (array)$ocPayload['metadata'] : [];
         $rawData  = isset($ocPayload['data'])     ? (array)$ocPayload['data']     : [];
 
-        $objectId    = isset($metadata['id']) ? (string)$metadata['id'] : '';
-        $languages   = isset($metadata['languages']) ? (array)$metadata['languages'] : [];
-        $primaryLang = count($languages) > 0 ? $languages[0] : null;
+        $objectId  = isset($metadata['id']) ? (string)$metadata['id'] : '';
+        $languages = isset($metadata['languages']) ? (array)$metadata['languages'] : [];
 
+        // meta.name è una mappa multilingue (locale → nome).
         $nameMap = isset($metadata['name']) ? (array)$metadata['name'] : [];
-        $name    = '';
-        if ($primaryLang !== null && isset($nameMap[$primaryLang])) {
-            $name = $nameMap[$primaryLang];
-        } elseif (count($nameMap) > 0) {
-            $name = reset($nameMap);
+
+        // meta.type: oggetto con id (class identifier), remote_id e labels (nomi tradotti annidati).
+        $classIdentifier = isset($metadata['classIdentifier']) ? $metadata['classIdentifier'] : null;
+        $type = null;
+        if ($classIdentifier !== null) {
+            $type = ['id' => $classIdentifier];
+            if (isset($metadata['classRemoteId']) && $metadata['classRemoteId'] !== null) {
+                $type['remote_id'] = $metadata['classRemoteId'];
+            }
+            if (!empty($metadata['classNames'])) {
+                $type['labels'] = (array)$metadata['classNames'];
+            }
         }
 
+        // meta.tree_placement: parent e antenati con remote_id e labels (nomi tradotti annidati).
+        // Il builder produce nodi piatti {remote_id, ita-IT, ...}; il formatter li normalizza
+        // in {remote_id, labels: {ita-IT, ...}} per separare campi tecnici da traduzioni.
+        $mainParentNode = isset($metadata['mainParentNode']) ? $metadata['mainParentNode'] : null;
+        $treePlacement  = $mainParentNode !== null ? [
+            'parent'    => self::normalizeNodeLabels($mainParentNode),
+            'ancestors' => array_map(
+                [self::class, 'normalizeNodeLabels'],
+                array_values(isset($metadata['parentNodes']) ? (array)$metadata['parentNodes'] : [])
+            ),
+        ] : null;
+
         $meta = [
-            'id'           => $this->instanceId . ':' . $objectId,
-            'tenant_id'    => $this->tenantId,
-            'siteaccess'   => $this->siteaccess,
-            'object_id'    => $objectId,
-            'remote_id'    => isset($metadata['remoteId'])          ? $metadata['remoteId']          : null,
-            'type_id'      => isset($metadata['classIdentifier'])    ? $metadata['classIdentifier']   : null,
-            'version'      => isset($metadata['currentVersion'])     ? (int)$metadata['currentVersion'] : null,
-            'languages'    => $languages,
-            'name'         => $name,
-            'site_url'     => isset($metadata['baseUrl'])            ? $metadata['baseUrl']           : null,
-            'content_url'  => isset($metadata['contentUrl'])        ? $metadata['contentUrl']        : null,
-            'api_url'      => isset($metadata['apiUrl'])            ? $metadata['apiUrl']            : null,
-            'created_by'     => isset($metadata['createdBy'])          ? $metadata['createdBy']           : null,
-            'modified_by'    => isset($metadata['modifiedBy'])         ? $metadata['modifiedBy']          : null,
-            'tree_placement' => isset($metadata['mainParentRemoteId']) ? [
-                'main_parent_remote_id' => $metadata['mainParentRemoteId'],
-                'parent_remote_ids'     => isset($metadata['parentRemoteIds'])
-                    ? array_values((array)$metadata['parentRemoteIds']) : [],
-            ] : null,
-            'published_at' => isset($metadata['published']) && $metadata['published'] !== null
-                                ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
-            'updated_at'   => isset($metadata['modified'])  && $metadata['modified']  !== null
-                                ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['modified']))  : null,
-            'is_public'    => isset($metadata['isPublic']) ? (bool)$metadata['isPublic'] : null,
+            'id'             => $this->instanceId . ':' . $objectId,
+            'tenant_id'      => $this->tenantId,
+            'siteaccess'     => $this->siteaccess,
+            'object_id'      => $objectId,
+            'remote_id'      => isset($metadata['remoteId'])       ? $metadata['remoteId']       : null,
+            'type'           => $type,
+            'version'        => isset($metadata['currentVersion']) ? (int)$metadata['currentVersion'] : null,
+            'languages'      => $languages,
+            'name'           => $nameMap,
+            'site_url'       => isset($metadata['baseUrl'])        ? $metadata['baseUrl']        : null,
+            'content_url'    => isset($metadata['contentUrl'])     ? $metadata['contentUrl']     : null,
+            'api_url'        => isset($metadata['apiUrl'])         ? $metadata['apiUrl']         : null,
+            'created_by'     => isset($metadata['createdBy'])      ? $metadata['createdBy']      : null,
+            'modified_by'    => isset($metadata['modifiedBy'])     ? $metadata['modifiedBy']     : null,
+            'tree_placement' => $treePlacement,
+            'published_at'   => isset($metadata['published']) && $metadata['published'] !== null
+                                    ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['published'])) : null,
+            'updated_at'     => isset($metadata['modified'])  && $metadata['modified']  !== null
+                                    ? gmdate('Y-m-d\TH:i:s\Z', self::toTimestamp($metadata['modified']))  : null,
+            'is_public'      => isset($metadata['isPublic']) ? (bool)$metadata['isPublic'] : null,
         ];
 
         // Flatten attribute values per language: extract the "content" field from each attribute.
@@ -161,7 +176,8 @@ class OCWebHookKafkaPayloadFormatter
         }
 
         // Apply canonical field name mapping. Unmapped fields and unmapped content types pass through.
-        $map = OCWebHookKafkaFieldMap::getMap($meta['type_id']);
+        $typeId = isset($meta['type']['id']) ? $meta['type']['id'] : null;
+        $map = OCWebHookKafkaFieldMap::getMap($typeId);
         if (!empty($map)) {
             foreach ($data as $lang => $attrs) {
                 $renamed = [];
@@ -173,7 +189,6 @@ class OCWebHookKafkaPayloadFormatter
         }
 
         // Apply content-type-specific structural transformations.
-        $typeId = $meta['type_id'];
         if ($typeId === 'event' || $typeId === 'event_with_related') {
             foreach ($data as $lang => $attrs) {
                 $attrs = self::flattenTimeInterval($attrs);
@@ -207,6 +222,29 @@ class OCWebHookKafkaPayloadFormatter
         }
         $ts = strtotime($value);
         return $ts !== false ? $ts : 0;
+    }
+
+    /**
+     * Converte un nodo piatto {remote_id, ita-IT, eng-GB, ...} in
+     * {remote_id, labels: {ita-IT, eng-GB, ...}}, separando campi tecnici da traduzioni.
+     * Usato per tree_placement.parent e tree_placement.ancestors.
+     */
+    public static function normalizeNodeLabels(array $node)
+    {
+        $localeRe = '/^[a-z]{2,3}-[A-Z]{2}$/';
+        $result   = [];
+        $labels   = [];
+        foreach ($node as $key => $value) {
+            if (preg_match($localeRe, $key)) {
+                $labels[$key] = $value;
+            } else {
+                $result[$key] = $value;
+            }
+        }
+        if (!empty($labels)) {
+            $result['labels'] = $labels;
+        }
+        return $result;
     }
 
     /**

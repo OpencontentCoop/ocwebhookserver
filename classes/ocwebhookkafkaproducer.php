@@ -123,10 +123,16 @@ class OCWebHookKafkaProducer
      */
     private function buildHeaders($triggerIdentifier, $payload = null, $retryCount = 0)
     {
-        // Determina entity type: type_id dal payload > ceTypeMap[trigger] > trigger
-        $typeId = is_array($payload) && isset($payload['entity']['meta']['type_id'])
-            ? $payload['entity']['meta']['type_id']
-            : null;
+        // Determina entity type: type.id dal payload > ceTypeMap[trigger] > trigger
+        $typeId = null;
+        if (is_array($payload)) {
+            if (isset($payload['entity']['meta']['type']['id'])) {
+                $typeId = $payload['entity']['meta']['type']['id'];
+            } elseif (isset($payload['entity']['meta']['type_id'])) {
+                // backward compat: job nell'outbox prodotti prima del formato v2
+                $typeId = $payload['entity']['meta']['type_id'];
+            }
+        }
         if ($typeId !== null) {
             $entityType = isset($this->ceTypeMap[$typeId]) ? $this->ceTypeMap[$typeId] : $typeId;
         } else {

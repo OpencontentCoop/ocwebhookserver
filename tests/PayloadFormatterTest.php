@@ -108,11 +108,12 @@ assert_eq($meta['id'],         'comune_it:42', 'entity.meta.id = "<siteaccess>:<
 assert_eq($meta['tenant_id'],  null,           'entity.meta.tenant_id is null when not provided');
 assert_eq($meta['siteaccess'], 'comune_it',    'entity.meta.siteaccess');
 assert_eq($meta['object_id'],  '42',           'entity.meta.object_id');
-assert_eq($meta['remote_id'],  'abc123remote', 'entity.meta.remote_id');
-assert_eq($meta['type_id'],    'article',      'entity.meta.type_id');
+assert_eq($meta['remote_id'],          'abc123remote', 'entity.meta.remote_id');
+assert_eq($meta['type']['id'],         'article',      'entity.meta.type.id (class identifier)');
+assert_null($meta['type']['remote_id'] ?? null,        'entity.meta.type.remote_id null when classRemoteId absent');
 assert_eq($meta['version'],    3,              'entity.meta.version (cast to int)');
 assert_eq($meta['languages'],  ['it-IT', 'eng-GB'], 'entity.meta.languages');
-assert_eq($meta['name'],       'Titolo notizia',    'entity.meta.name (primary language)');
+assert_eq($meta['name'],       ['it-IT' => 'Titolo notizia', 'eng-GB' => 'News title'], 'entity.meta.name è mappa multilingue');
 assert_eq($meta['site_url'],    'https://www.comune.example.it', 'entity.meta.site_url');
 assert_null($meta['content_url'],   'entity.meta.content_url is null when not in metadata');
 assert_null($meta['api_url'],       'entity.meta.api_url is null when not in metadata');
@@ -198,12 +199,12 @@ $meta3      = $result3['entity']['meta'];
 
 assert_eq($meta3['id'],         'test_sa:99', 'Minimal: id constructed correctly');
 assert_null($meta3['remote_id'],              'Minimal: remote_id is null when missing');
-assert_null($meta3['type_id'],                'Minimal: type_id is null when missing');
+assert_null($meta3['type'],                   'Minimal: type is null when classIdentifier missing');
 assert_null($meta3['version'],                'Minimal: version is null when missing');
 assert_null($meta3['published_at'],           'Minimal: published_at is null when missing');
 assert_null($meta3['updated_at'],             'Minimal: updated_at is null when missing');
 assert_eq($meta3['languages'],  [],           'Minimal: languages is empty array');
-assert_eq($meta3['name'],       '',           'Minimal: name is empty string when missing');
+assert_eq($meta3['name'],       [],           'Minimal: name è mappa vuota quando assente');
 assert_eq($result3['entity']['data'], [],     'Minimal: entity.data is empty array');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -622,11 +623,14 @@ assert_eq(
 
 $payloadTP = [
     'metadata' => [
-        'id'                 => '500',
-        'languages'          => ['it-IT'],
-        'name'               => ['it-IT' => 'Test'],
-        'mainParentRemoteId' => 'trasparenza',
-        'parentRemoteIds'    => ['trasparenza', 'servizi'],
+        'id'             => '500',
+        'languages'      => ['ita-IT'],
+        'name'           => ['ita-IT' => 'Test'],
+        'mainParentNode' => ['remote_id' => 'notizie', 'ita-IT' => 'Notizie', 'eng-GB' => 'News'],
+        'parentNodes'    => [
+            ['remote_id' => 'homepage', 'ita-IT' => 'Homepage', 'eng-GB' => 'Homepage'],
+            ['remote_id' => 'notizie',  'ita-IT' => 'Notizie',  'eng-GB' => 'News'],
+        ],
     ],
     'data' => [],
 ];
@@ -636,17 +640,23 @@ $metaTP = $resTP['entity']['meta'];
 
 assert_eq(
     $metaTP['tree_placement'],
-    ['main_parent_remote_id' => 'trasparenza', 'parent_remote_ids' => ['trasparenza', 'servizi']],
-    'tree_placement built from mainParentRemoteId + parentRemoteIds'
+    [
+        'parent'    => ['remote_id' => 'notizie',  'labels' => ['ita-IT' => 'Notizie',  'eng-GB' => 'News']],
+        'ancestors' => [
+            ['remote_id' => 'homepage', 'labels' => ['ita-IT' => 'Homepage', 'eng-GB' => 'Homepage']],
+            ['remote_id' => 'notizie',  'labels' => ['ita-IT' => 'Notizie',  'eng-GB' => 'News']],
+        ],
+    ],
+    'tree_placement con parent e ancestors — nomi tradotti in labels annidato'
 );
 
-// null when mainParentRemoteId absent
+// null when mainParentNode absent
 $payloadNoTP = [
-    'metadata' => ['id' => '501', 'languages' => ['it-IT'], 'name' => ['it-IT' => 'X']],
+    'metadata' => ['id' => '501', 'languages' => ['ita-IT'], 'name' => ['ita-IT' => 'X']],
     'data' => [],
 ];
 $resNoTP = $fmTP->format($payloadNoTP);
-assert_null($resNoTP['entity']['meta']['tree_placement'], 'tree_placement null when mainParentRemoteId absent');
+assert_null($resNoTP['entity']['meta']['tree_placement'], 'tree_placement null when mainParentNode absent');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 16: entity.meta.is_public mapped from metadata.isPublic
@@ -888,21 +898,25 @@ $resBilingual = $fmBilingual->format($payloadBilingual);
 $metaBi       = $resBilingual['entity']['meta'];
 
 assert_eq($metaBi['languages'][0], 'ita-IT',    'Bilingue: languages[0] è la lingua principale (ita-IT)');
-assert_eq($metaBi['name'],         'Elezioni',  'Bilingue: meta.name dall\'italiano (lingua principale)');
-assert_eq($metaBi['languages'],    ['ita-IT', 'ger-DE'], 'Bilingue: entrambe le lingue in meta.languages');
+assert_eq(
+    $metaBi['name'],
+    ['ita-IT' => 'Elezioni', 'ger-DE' => 'Wahlverfahren'],
+    'Bilingue: meta.name è mappa con tutte le traduzioni'
+);
+assert_eq($metaBi['languages'], ['ita-IT', 'ger-DE'], 'Bilingue: entrambe le lingue in meta.languages');
 assert_true(
     isset($resBilingual['entity']['data']['ita-IT']) && isset($resBilingual['entity']['data']['ger-DE']),
     'Bilingue: entity.data contiene entrambe le traduzioni'
 );
 
-// Payload come prodotto dal builder PRIMA del fix: ger-DE first (DB order) → meta.name sbagliato
-// Questo blocco documenta il comportamento atteso dal formatter quando riceve lingue in ordine errato,
-// e serve da evidenza del bug originale.
+// Con meta.name come mappa, l'ordine di languages[] non altera il contenuto di name
+// ma è ancora importante per il consumer (languages[0] = lingua principale).
+// Verifica che la mappa contenga sempre tutte le traduzioni indipendentemente dall'ordine.
 $payloadWrongOrder = [
     'metadata' => [
         'id'              => '998',
         'classIdentifier' => 'argomento',
-        'languages'       => ['ger-DE', 'ita-IT'],           // ordine errato (pre-fix)
+        'languages'       => ['ger-DE', 'ita-IT'],
         'name'            => ['ita-IT' => 'Elezioni', 'ger-DE' => 'Wahlverfahren'],
     ],
     'data' => [
@@ -914,8 +928,13 @@ $payloadWrongOrder = [
 $resWrong = $fmBilingual->format($payloadWrongOrder);
 assert_eq(
     $resWrong['entity']['meta']['name'],
-    'Wahlverfahren',
-    'Bilingue pre-fix: meta.name è tedesco quando ger-DE è languages[0] (documenta il bug originale)'
+    ['ita-IT' => 'Elezioni', 'ger-DE' => 'Wahlverfahren'],
+    'Bilingue pre-fix: meta.name è mappa con entrambe le traduzioni anche se ger-DE è languages[0]'
+);
+assert_eq(
+    $resWrong['entity']['meta']['languages'][0],
+    'ger-DE',
+    'Bilingue pre-fix: languages[0] riflette ancora l\'ordine errato (il builder deve correggere questo)'
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
