@@ -123,6 +123,12 @@ class OCWebHookKafkaFieldMap
             'has_status_notes' => 'status_notes',
         ],
 
+        // ── public_service (Servizi) ─────────────────────────────────────────
+        'public_service' => [
+            'ife_event'      => 'life_events',
+            'business_event' => 'business_events',
+        ],
+
         // ── audio ─────────────────────────────────────────────────────────────
         'audio' => [
             'sottotitolo' => 'subtitle',
@@ -160,7 +166,7 @@ class OCWebHookKafkaFieldMap
             'priorita'              => 'priority',
         ],
 
-        // Content types with no renames: public_service, faq, faq_section,
+        // Content types with no renames: faq, faq_section,
         // image, chart, banner, offer, output, howto — all fields already canonical.
     ];
 
