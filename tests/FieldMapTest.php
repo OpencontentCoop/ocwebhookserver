@@ -31,9 +31,11 @@ function assert_true(bool $v, string $t, string $r = ''): void { $v ? ok($t) : f
 assert_eq(OCWebHookKafkaFieldMap::getMap('contatti'), [], 'Unknown type returns empty array');
 assert_eq(OCWebHookKafkaFieldMap::getMap(''), [], 'Empty string type returns empty array');
 
-// ── TEST 2: public_service has no renames ─────────────────────────────────────
+// ── TEST 2: public_service renames ───────────────────────────────────────────
 
-assert_eq(OCWebHookKafkaFieldMap::getMap('public_service'), [], 'public_service has no renames (all fields already canonical)');
+$publicServiceMap = OCWebHookKafkaFieldMap::getMap('public_service');
+assert_eq($publicServiceMap['ife_event'],      'life_events',     'public_service: ife_event → life_events');
+assert_eq($publicServiceMap['business_event'], 'business_events', 'public_service: business_event → business_events');
 
 // ── TEST 3: article map ───────────────────────────────────────────────────────
 
