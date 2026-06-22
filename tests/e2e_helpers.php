@@ -279,9 +279,9 @@ function e2e_verify_kafka_message(RdKafka\Message $message, string $expectedTitl
     );
 
     assert_true(
-        isset($meta['type_id']) && $meta['type_id'] !== '',
-        'entity.meta.type_id presente',
-        'got: ' . var_export($meta['type_id'] ?? null, true)
+        isset($meta['type']['id']) && $meta['type']['id'] !== '',
+        'entity.meta.type.id presente',
+        'got: ' . var_export($meta['type']['id'] ?? null, true)
     );
 
     $primaryLang = $meta['languages'][0] ?? 'ita-IT';

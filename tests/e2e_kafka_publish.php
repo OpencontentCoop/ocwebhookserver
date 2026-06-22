@@ -352,11 +352,11 @@ assert_true(
     'got: ' . var_export($meta['siteaccess'] ?? null, true)
 );
 
-// type_id
+// type
 assert_true(
-    isset($meta['type_id']) && $meta['type_id'] !== '',
-    'entity.meta.type_id presente',
-    'got: ' . var_export($meta['type_id'] ?? null, true)
+    isset($meta['type']['id']) && $meta['type']['id'] !== '',
+    'entity.meta.type.id presente',
+    'got: ' . var_export($meta['type']['id'] ?? null, true)
 );
 
 // data.<primaryLang>.title corrisponde al titolo inviato.

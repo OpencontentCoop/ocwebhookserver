@@ -215,7 +215,7 @@ if ($message !== null) {
 
     $meta = $decoded['entity']['meta'] ?? [];
     assert_eq($meta['object_id'], '42',          'entity.meta.object_id = "42"');
-    assert_eq($meta['type_id'],   'article',     'entity.meta.type_id = "article"');
+    assert_eq($meta['type']['id'],   'article',     'entity.meta.type.id = "article"');
     assert_true(
         strpos($meta['id'] ?? '', ':42') !== false,
         'entity.meta.id contiene "<siteaccess>:42"'
