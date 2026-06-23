@@ -161,6 +161,9 @@ class OCWebHookKafkaPayloadFormatter
                                 // no classIdentifier — pass through as-is to avoid spurious
                                 // id/title/taxonomy null fields from normalizeTaxonomyItem.
                                 if (isset($item['filename'])) {
+                                    if (isset($item['url'])) {
+                                        $item['url'] = OCWebHookPayloadBuilder::forceHttps($item['url']);
+                                    }
                                     return $item;
                                 }
                                 return OCWebHookKafkaPayloadFormatter::normalizeTaxonomyItem($item, $siteUrl);
