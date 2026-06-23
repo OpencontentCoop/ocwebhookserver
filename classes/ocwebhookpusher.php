@@ -217,12 +217,7 @@ class OCWebHookPusher
                     && is_array($attrValue[0])
                     && isset($attrValue[0]['filename'])
                 ) {
-                    return array_map(function ($fileItem) {
-                        if (isset($fileItem['url'])) {
-                            $fileItem['url'] = OCWebHookPayloadBuilder::forceHttps($fileItem['url']);
-                        }
-                        return $fileItem;
-                    }, $attrValue);
+                    return $attrValue;
                 }
             }
             break; // First language is enough
@@ -261,7 +256,7 @@ class OCWebHookPusher
                 if (strpos($url, 'http') !== 0 && $siteUrl !== null) {
                     $url = rtrim($siteUrl, '/') . '/' . ltrim($url, '/');
                 }
-                return OCWebHookPayloadBuilder::forceHttps($url);
+                return $url;
             }
         }
         return null;

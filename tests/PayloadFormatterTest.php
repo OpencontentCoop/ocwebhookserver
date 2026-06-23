@@ -12,6 +12,7 @@
  *   php tests/PayloadFormatterTest.php
  */
 
+require_once __DIR__ . '/../classes/ocwebhookpayloadbuilder.php';
 require_once __DIR__ . '/../classes/ocwebhookkafkapayloadformatter.php';
 
 // ─────────────────────────────────────────────────────────────────────────────

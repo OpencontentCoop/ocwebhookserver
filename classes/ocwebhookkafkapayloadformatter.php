@@ -480,7 +480,7 @@ class OCWebHookKafkaPayloadFormatter
         if ($resolver !== null && in_array($classId, $imageTypes, true) && !isset($result['url'])) {
             $resolved = call_user_func($resolver, $rawId, $siteUrl);
             if ($resolved !== null) {
-                $result['url'] = $resolved;
+                $result['url'] = OCWebHookPayloadBuilder::forceHttps($resolved);
             }
         }
 
@@ -488,7 +488,12 @@ class OCWebHookKafkaPayloadFormatter
         if ($docFilesResolver !== null && $classId === 'document' && !isset($result['files'])) {
             $files = call_user_func($docFilesResolver, $rawId);
             if (!empty($files)) {
-                $result['files'] = $files;
+                $result['files'] = array_map(function ($f) {
+                    if (isset($f['url'])) {
+                        $f['url'] = OCWebHookPayloadBuilder::forceHttps($f['url']);
+                    }
+                    return $f;
+                }, $files);
             }
         }
 

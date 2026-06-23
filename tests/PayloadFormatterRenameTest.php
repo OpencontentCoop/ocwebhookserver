@@ -13,6 +13,7 @@
  */
 
 require_once __DIR__ . '/../classes/ocwebhookkafkafieldmap.php';
+require_once __DIR__ . '/../classes/ocwebhookpayloadbuilder.php';
 require_once __DIR__ . '/../classes/ocwebhookkafkapayloadformatter.php';
 
 $PASSED = 0;
