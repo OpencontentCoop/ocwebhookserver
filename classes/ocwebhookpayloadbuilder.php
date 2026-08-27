@@ -271,23 +271,7 @@ class OCWebHookPayloadBuilder
                         if (!is_array($item)) {
                             continue;
                         }
-                        if (self::isNoContentUrlType($item)) {
-                            continue;
-                        }
-                        $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
-                                : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
-                        if (!$nodeId) {
-                            continue;
-                        }
-                        if (!array_key_exists($nodeId, $nodeUrlCache)) {
-                            $node = eZContentObjectTreeNode::fetch($nodeId);
-                            $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
-                                ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
-                                : null;
-                        }
-                        if ($nodeUrlCache[$nodeId] !== null) {
-                            $item['content_url'] = $nodeUrlCache[$nodeId];
-                        }
+                        self::resolveItemContentUrl($item, $baseUrl, $nodeUrlCache);
                     }
                     unset($item);
                     continue;
@@ -305,29 +289,62 @@ class OCWebHookPayloadBuilder
                     if (!is_array($item)) {
                         continue;
                     }
-                    if (self::isNoContentUrlType($item)) {
-                        continue;
-                    }
-                    $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
-                            : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
-                    if (!$nodeId) {
-                        continue;
-                    }
-                    if (!array_key_exists($nodeId, $nodeUrlCache)) {
-                        $node = eZContentObjectTreeNode::fetch($nodeId);
-                        $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
-                            ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
-                            : null;
-                    }
-                    if ($nodeUrlCache[$nodeId] !== null) {
-                        $item['content_url'] = $nodeUrlCache[$nodeId];
-                    }
+                    self::resolveItemContentUrl($item, $baseUrl, $nodeUrlCache);
                 }
                 unset($item);
             }
             unset($attrValue);
         }
         unset($attributes);
+    }
+
+    /**
+     * Resolve content_url for a single relation item, then recurse into any of its
+     * own fields that are themselves lists of relation items (e.g. "for_entity",
+     * "person" nested inside a time_indexed_role item embedded in has_role).
+     *
+     * A field is treated as a nested relation-item list only when its first element
+     * has mainNodeId/main_node_id — this guards against recursing into unrelated
+     * nested arrays (ezxmltext content, eztags string lists, time_interval structures)
+     * that happen to share the attribute-list shape but are not relation items.
+     *
+     * @param array  $item         Relation item, modified by reference.
+     * @param string $baseUrl
+     * @param array  $nodeUrlCache Shared cache of nodeId => resolved URL, by reference.
+     */
+    private static function resolveItemContentUrl(array &$item, $baseUrl, array &$nodeUrlCache)
+    {
+        if (!self::isNoContentUrlType($item)) {
+            $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
+                    : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
+            if ($nodeId) {
+                if (!array_key_exists($nodeId, $nodeUrlCache)) {
+                    $node = eZContentObjectTreeNode::fetch($nodeId);
+                    $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
+                        ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
+                        : null;
+                }
+                if ($nodeUrlCache[$nodeId] !== null) {
+                    $item['content_url'] = $nodeUrlCache[$nodeId];
+                }
+            }
+        }
+
+        foreach ($item as $key => &$value) {
+            if (!is_array($value) || !isset($value[0]) || !is_array($value[0])) {
+                continue;
+            }
+            if (!isset($value[0]['mainNodeId']) && !isset($value[0]['main_node_id'])) {
+                continue;
+            }
+            foreach ($value as &$nestedItem) {
+                if (is_array($nestedItem)) {
+                    self::resolveItemContentUrl($nestedItem, $baseUrl, $nodeUrlCache);
+                }
+            }
+            unset($nestedItem);
+        }
+        unset($value);
     }
 
     /**

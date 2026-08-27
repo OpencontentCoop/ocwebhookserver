@@ -441,6 +441,12 @@ class OCWebHookKafkaPayloadFormatter
      * Output: {type_id, id: "instanceId:objectId", object_id, remote_id, title, [api_url, priority, ...]}
      * Dropped: class, classIdentifier, class_identifier, languages, link, mainNodeId, main_node_id, name
      *
+     * Recurses into any of the item's own fields that are themselves lists of relation
+     * items (detected by the presence of classIdentifier/class_identifier on their first
+     * element) — e.g. "for_entity" or "person" nested inside a time_indexed_role item
+     * embedded in has_role. Fields that don't look like relation-item lists (plain tag
+     * lists, xml text, scalars) are left untouched by this recursion.
+     *
      * @param array  $item
      * @param string $instanceId  e.g. "bugliano" — prefixed to object id
      * @return array
@@ -470,9 +476,22 @@ class OCWebHookKafkaPayloadFormatter
             'class' => true, 'languages' => true, 'link' => true,
         ];
         foreach ($item as $key => $value) {
-            if (!isset($skip[$key])) {
-                $result[$key] = $value;
+            if (isset($skip[$key])) {
+                continue;
             }
+            if (is_array($value) && isset($value[0]) && is_array($value[0])
+                && (isset($value[0]['classIdentifier']) || isset($value[0]['class_identifier']))
+            ) {
+                $value = array_map(
+                    function ($nestedItem) use ($instanceId, $siteUrl, $resolver, $docFilesResolver) {
+                        return is_array($nestedItem)
+                            ? self::normalizeRelationItem($nestedItem, $instanceId, $siteUrl, $resolver, $docFilesResolver)
+                            : $nestedItem;
+                    },
+                    $value
+                );
+            }
+            $result[$key] = $value;
         }
 
         // Resolve image URL for image-type relation items when no url is already present.
