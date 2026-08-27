@@ -145,9 +145,60 @@ class OCWebHookPayloadBuilder
             }
         }
 
+        self::resolveComputedRoles($payload, $object);
         self::enrichRelationContentUrls($payload, $payload['metadata']['baseUrl']);
 
         return $payload;
+    }
+
+    /**
+     * Risolve gli attributi openparole (es. public_person.has_role) ai dati reali
+     * del ruolo, invece del placeholder '(calculated)' lasciato deliberatamente da
+     * OpenPARoleAttributeConverter::get() per non appesantire con una query Solr
+     * per persona ogni lettura della REST API pubblica ocopendata (usata anche per
+     * liste/ricerca, dove il costo si moltiplicherebbe per ogni risultato).
+     *
+     * Il webhook gira solo alla pubblicazione — un evento raro rispetto alle letture
+     * REST — quindi qui il costo della query Solr per oggetto è accettabile e viene
+     * fatto solo in questo punto, non nel converter condiviso.
+     */
+    private static function resolveComputedRoles(array &$payload, eZContentObject $object)
+    {
+        if (empty($payload['data']) || !is_array($payload['data'])) {
+            return;
+        }
+        if (!class_exists('OpenPARoles') || !class_exists('OpenPARoleAttributeConverter')) {
+            return;
+        }
+
+        foreach ($payload['data'] as $lang => &$attributes) {
+            if (!is_array($attributes)) {
+                continue;
+            }
+
+            // A questo punto DefaultEnvironmentSettings::flatData() ha già ridotto
+            // ogni attributo al solo valore 'content' (qui: la stringa placeholder
+            // '(calculated)' per openparole) — l'informazione 'datatype' non è più
+            // nel payload, va ripresa dal dataMap reale dell'oggetto.
+            $dataMap = $object->fetchDataMap(false, $lang);
+            foreach ($dataMap as $attrIdentifier => $attribute) {
+                if ($attribute->attribute('data_type_string') !== 'openparole') {
+                    continue;
+                }
+                if (!array_key_exists($attrIdentifier, $attributes)) {
+                    continue;
+                }
+
+                $roles = [];
+                foreach (OpenPARoles::instance($attribute)->attribute('roles') as $role) {
+                    if ($role instanceof eZContentObject) {
+                        $roles[] = OpenPARoleAttributeConverter::serializeRole($role);
+                    }
+                }
+                $attributes[$attrIdentifier] = $roles;
+            }
+        }
+        unset($attributes);
     }
 
     /**
@@ -271,23 +322,7 @@ class OCWebHookPayloadBuilder
                         if (!is_array($item)) {
                             continue;
                         }
-                        if (self::isNoContentUrlType($item)) {
-                            continue;
-                        }
-                        $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
-                                : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
-                        if (!$nodeId) {
-                            continue;
-                        }
-                        if (!array_key_exists($nodeId, $nodeUrlCache)) {
-                            $node = eZContentObjectTreeNode::fetch($nodeId);
-                            $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
-                                ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
-                                : null;
-                        }
-                        if ($nodeUrlCache[$nodeId] !== null) {
-                            $item['content_url'] = $nodeUrlCache[$nodeId];
-                        }
+                        self::resolveItemContentUrl($item, $baseUrl, $nodeUrlCache);
                     }
                     unset($item);
                     continue;
@@ -305,29 +340,62 @@ class OCWebHookPayloadBuilder
                     if (!is_array($item)) {
                         continue;
                     }
-                    if (self::isNoContentUrlType($item)) {
-                        continue;
-                    }
-                    $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
-                            : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
-                    if (!$nodeId) {
-                        continue;
-                    }
-                    if (!array_key_exists($nodeId, $nodeUrlCache)) {
-                        $node = eZContentObjectTreeNode::fetch($nodeId);
-                        $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
-                            ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
-                            : null;
-                    }
-                    if ($nodeUrlCache[$nodeId] !== null) {
-                        $item['content_url'] = $nodeUrlCache[$nodeId];
-                    }
+                    self::resolveItemContentUrl($item, $baseUrl, $nodeUrlCache);
                 }
                 unset($item);
             }
             unset($attrValue);
         }
         unset($attributes);
+    }
+
+    /**
+     * Resolve content_url for a single relation item, then recurse into any of its
+     * own fields that are themselves lists of relation items (e.g. "for_entity",
+     * "person" nested inside a time_indexed_role item embedded in has_role).
+     *
+     * A field is treated as a nested relation-item list only when its first element
+     * has mainNodeId/main_node_id — this guards against recursing into unrelated
+     * nested arrays (ezxmltext content, eztags string lists, time_interval structures)
+     * that happen to share the attribute-list shape but are not relation items.
+     *
+     * @param array  $item         Relation item, modified by reference.
+     * @param string $baseUrl
+     * @param array  $nodeUrlCache Shared cache of nodeId => resolved URL, by reference.
+     */
+    private static function resolveItemContentUrl(array &$item, $baseUrl, array &$nodeUrlCache)
+    {
+        if (!self::isNoContentUrlType($item)) {
+            $nodeId = isset($item['mainNodeId']) ? (int)$item['mainNodeId']
+                    : (isset($item['main_node_id']) ? (int)$item['main_node_id'] : null);
+            if ($nodeId) {
+                if (!array_key_exists($nodeId, $nodeUrlCache)) {
+                    $node = eZContentObjectTreeNode::fetch($nodeId);
+                    $nodeUrlCache[$nodeId] = ($node instanceof eZContentObjectTreeNode)
+                        ? $baseUrl . '/' . ltrim($node->urlAlias(), '/')
+                        : null;
+                }
+                if ($nodeUrlCache[$nodeId] !== null) {
+                    $item['content_url'] = $nodeUrlCache[$nodeId];
+                }
+            }
+        }
+
+        foreach ($item as $key => &$value) {
+            if (!is_array($value) || !isset($value[0]) || !is_array($value[0])) {
+                continue;
+            }
+            if (!isset($value[0]['mainNodeId']) && !isset($value[0]['main_node_id'])) {
+                continue;
+            }
+            foreach ($value as &$nestedItem) {
+                if (is_array($nestedItem)) {
+                    self::resolveItemContentUrl($nestedItem, $baseUrl, $nodeUrlCache);
+                }
+            }
+            unset($nestedItem);
+        }
+        unset($value);
     }
 
     /**
