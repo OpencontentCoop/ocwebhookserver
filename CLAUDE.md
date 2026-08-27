@@ -1,5 +1,17 @@
 # ocwebhookserver — guida per Claude
 
+## ⛔ Regola assoluta sul branching git
+
+**Non pushare MAI direttamente su `master`.** Sempre creare un branch da `master`:
+1. `git checkout master && git pull`
+2. `git checkout -b feature/nome` oppure `fix/nome`
+3. Committare sul branch
+4. **Aspettare conferma esplicita** prima di fare `push`
+
+Nessuna eccezione.
+
+---
+
 ## Scopo dell'estensione
 
 `ocwebhookserver` è l'estensione eZ Publish che gestisce la consegna di eventi (webhook HTTP e Kafka) al verificarsi di eventi sul CMS (es. pubblicazione di contenuti). Ogni istanza OpenCity (~500 tenant) ha i propri webhook configurati nel backend.
