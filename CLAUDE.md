@@ -102,6 +102,15 @@ Quando `OCSearchEngine` è attivo:
 1. Aggiungere due nuovi trigger (`create_ocopendata`, `update_ocopendata`)
 2. Modificare `PostPublishWebHookTrigger` o creare un `WorkflowWebHookType` dedicato che biforca in base a `currentVersion`
 
+**Limite noto — nessuna propagazione a oggetti correlati**: entrambi i trigger (`WorkflowWebHookType`/`post_publish`, `DeleteWorkflowWebHookType`/`pre_delete`) emettono **solo** per l'oggetto effettivamente pubblicato/cancellato, mai per altri oggetti che lo referenziano. Questo diventa rilevante per qualsiasi campo del payload che espone dati **calcolati da un oggetto correlato** (relazione inversa) — es. `public_person.has_role` (risolto da `OpenPARoleAttributeConverter::serializeRole()` via `OCWebHookPayloadBuilder::resolveComputedRoles()`, che legge i `time_indexed_role` collegati alla persona): se un redattore pubblica/modifica/cancella un `time_indexed_role`, **non** scatta automaticamente un nuovo evento Kafka per le `public_person` collegate. Il consumer vede `has_role` invariato finché qualcuno non ripubblica la persona stessa.
+
+Non esiste oggi (ago 2026) alcun meccanismo di cascade per colmare questo gap. Un pattern concettualmente simile esiste per Solr in `openpa_bootstrapitalia/classes/indexplugins/index_role_reverse_relations.php` (propaga persona→ruolo, direzione opposta a quella che servirebbe qui), ma non è riusabile direttamente per il webhook. Implementarlo richiederebbe, ad alto livello:
+- leggere `dataMap()['person']` del ruolo al `post_publish`/`pre_delete` e riemettere per ciascuna persona collegata (relazione diretta, non serve query reverse);
+- un guard anti-loop (non esiste oggi);
+- gestire l'interazione con Piano C (`OCSearchEngine`): quando attivo, i due `*WebHookType.php` restano già silenti (l'emissione parte da `OCSearchEngine::addObject`/`removeObject`), quindi un cascade fatto solo nei due eventtype sparirebbe su quei tenant — andrebbe replicato/spostato anche lì.
+
+Se in futuro serve rendere `has_role` (o campi analoghi calcolati da relazioni inverse) coerente in tempo reale via Kafka, questo è il punto di partenza da approfondire — non un piccolo fix, una feature a sé con decisioni di design non banali.
+
 ---
 
 ## Formato evento Kafka (CloudEvents)
