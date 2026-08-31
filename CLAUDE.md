@@ -111,6 +111,16 @@ Non esiste oggi (ago 2026) alcun meccanismo di cascade per colmare questo gap. U
 
 Se in futuro serve rendere `has_role` (o campi analoghi calcolati da relazioni inverse) coerente in tempo reale via Kafka, questo è il punto di partenza da approfondire — non un piccolo fix, una feature a sé con decisioni di design non banali.
 
+**Limite noto — `for_entity` non filtrato per accesso (nessun controllo privacy:private)**: `OpenPARoleAttributeConverter::serializeRole()` (in `openpa_bootstrapitalia/datatypes/openparole/OpenPARoleAttributeConverter.php`) risolve `for_entity` con un `eZContentObject::fetch()` grezzo, senza alcun controllo di accesso, ed emette id/remoteId/classIdentifier/mainNodeId/name dell'entità collegata (tipicamente un ufficio/organization) nel payload Kafka `has_role[].for_entity` — anche quando quell'entità è marcata `privacy:private`. Non c'è invece leak su `person`: `serializeRole()` non emette quel campo.
+
+Questo è l'analogo, sul path webhook, del leak già risolto lato rendering web (vedi `getEntities()`/`fetchPeople()`/`getTypesPerEntity()` in `openpa_bootstrapitalia/datatypes/openparole/openparoles.php`) — stesso pattern (fetch grezzo di contenuto correlato senza controllo permessi), boundary diverso (payload Kafka invece di HTML).
+
+**Perché non si può riusare direttamente il fix già fatto lato web**: i tre fix web usano `OpenPARoles::filterReadableObjects()`, basato su `eZUser::currentUser()` — il visitatore reale della richiesta HTTP. Ma `resolveComputedRoles()` (in questo repo, `classes/ocwebhookpayloadbuilder.php`) gira dentro il workflow `post_publish`, nel contesto dell'utente che sta pubblicando (redattore/admin) — non l'anonimo. Riusare `filterReadableObjects()` così com'è nel path webhook filtrerebbe in base ai permessi di chi pubblica (che quasi sempre può leggere tutto), non in base alla visibilità pubblica: il filtro non scatterebbe quasi mai e il leak resterebbe. Il pattern corretto da riusare è invece `OCWebHookPayloadBuilder::checkIsPublic()` (già in questo file), che forza temporaneamente l'utente anonimo per il check — lo stesso già usato per calcolare `metadata.isPublic` dell'oggetto principale del payload.
+
+Decisioni di design ancora aperte per quando si affronterà il fix:
+- **Drop vs flag**: rimuovere `for_entity` dal payload quando privato (coerente con i fix web: safe by default anche per consumer che non controllano un flag) oppure lasciarlo con un `isPublic: false` sull'item, sul modello di `metadata.isPublic`, lasciando la decisione al consumer?
+- **Dove implementare**: post-processing dentro `resolveComputedRoles()` in questo repo (riusa `checkIsPublic()` già presente, zero nuovo accoppiamento tra le due estensioni) oppure dentro `relatedContentItems()`/`serializeRole()` in `openpa_bootstrapitalia` (richiederebbe replicare lì la logica di forzatura utente anonimo, e tocca un converter condiviso anche con la REST API pubblica `ocopendata`)?
+
 ---
 
 ## Formato evento Kafka (CloudEvents)
