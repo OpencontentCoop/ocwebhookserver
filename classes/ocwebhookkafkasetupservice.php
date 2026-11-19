@@ -45,6 +45,44 @@ class OCWebHookKafkaSetupService
             return ['ok' => false, 'log' => $log];
         }
 
+        // ── Scritture: tutto in una transazione ──────────────────────────────
+        // Tutto o niente: se un passo fallisce (o il DB lancia un errore) le
+        // scritture già fatte vengono annullate, senza lasciare residui (es.
+        // workflow orfani). Con eZDB in modalità eccezioni l'errore SQL reale
+        // arriva qui come eccezione, invece di interrompere il processo.
+        $this->db->setErrorHandling(eZDB::ERROR_HANDLING_EXCEPTIONS);
+        $this->db->begin();
+
+        try {
+            $result = $this->applySetup($brokers, $topic, $log);
+        } catch (Exception $e) {
+            $this->db->rollback();
+            $this->db->setErrorHandling(eZDB::ERROR_HANDLING_STANDARD);
+            $log[] = '[error] Errore del database: ' . $e->getMessage();
+            $log[] = '[error] Modifiche annullate (rollback): nessuna scrittura è stata confermata';
+            return ['ok' => false, 'log' => $log];
+        }
+
+        if ($result['ok']) {
+            $this->db->commit();
+        } else {
+            $this->db->rollback();
+            $result['log'][] = '[error] Modifiche annullate (rollback): nessuna scrittura è stata confermata';
+        }
+        $this->db->setErrorHandling(eZDB::ERROR_HANDLING_STANDARD);
+
+        return $result;
+    }
+
+    /**
+     * Passi di scrittura del setup, da eseguire dentro la transazione di run().
+     *
+     * @return array ['ok' => bool, 'log' => string[]]
+     */
+    private function applySetup(array $brokers, $topic, array &$log)
+    {
+        // $log è passato per riferimento: se un'eccezione interrompe il setup a
+        // metà, run() conserva comunque i passi già eseguiti prima dell'errore.
         // ── Step 1a: workflow post_publish ───────────────────────────────────
 
         if ($this->workflowExists()) {
@@ -234,6 +272,38 @@ class OCWebHookKafkaSetupService
      */
     private function createWorkflow(array &$log)
     {
+        // Se il trigger content/publish/a esiste già (es. tenant creato prima che
+        // l'installer includesse event_workflowwebhook in "Post pubblicazione"),
+        // aggiungiamo il nostro event al workflow esistente — eZ non ammette più
+        // di un trigger per (module_name, function_name, connect_type), e crearne
+        // un secondo lascerebbe workflow orfani.
+        $existingTrigger = $this->db->arrayQuery(
+            "SELECT id, workflow_id FROM eztrigger " .
+            "WHERE module_name = 'content' AND function_name = 'publish' AND connect_type = 'a' LIMIT 1"
+        );
+
+        if (!empty($existingTrigger)) {
+            $workflowId = (int)$existingTrigger[0]['workflow_id'];
+            $triggerId  = (int)$existingTrigger[0]['id'];
+
+            $placementRes = $this->db->arrayQuery(
+                "SELECT COALESCE(MAX(placement), 0) + 1 AS next_placement " .
+                "FROM ezworkflow_event WHERE workflow_id = $workflowId"
+            );
+            $placement = (int)($placementRes[0]['next_placement'] ?? 1);
+
+            $this->db->query(
+                "INSERT INTO ezworkflow_event " .
+                "  (workflow_id, version, placement, workflow_type_string) " .
+                "VALUES ($workflowId, 0, $placement, 'event_workflowwebhook')"
+            );
+
+            $log[] = "[ok] Workflow post_publish configurato: event aggiunto al workflow esistente " .
+                     "(ezworkflow.id=$workflowId, eztrigger.id=$triggerId)";
+            return true;
+        }
+
+        // Nessun trigger esistente: crea workflow + event + trigger da zero.
         $now  = time();
         $name = 'OCWebHookServer - post_publish';
 

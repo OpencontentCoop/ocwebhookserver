@@ -30,13 +30,61 @@ class SpyDB
      */
     public $results = [];
 
+    /** @var int Chiamate a begin()/commit()/rollback() */
+    public $began = 0;
+    public $committed = 0;
+    public $rolledBack = 0;
+
+    /** @var int[] Storico delle modalità di gestione errori impostate (setErrorHandling) */
+    public $errorHandlingHistory = [];
+
+    /**
+     * Se valorizzato: query()/arrayQuery() che contengono questa stringa lanciano
+     * una RuntimeException con $throwMessage (simula eZDBException in modalità eccezioni).
+     * @var string|null
+     */
+    public $throwOn = null;
+    public $throwMessage = 'ERROR: simulated database error';
+
+    public function begin()
+    {
+        $this->began++;
+        return true;
+    }
+
+    public function commit()
+    {
+        $this->committed++;
+        return true;
+    }
+
+    public function rollback()
+    {
+        $this->rolledBack++;
+        return true;
+    }
+
+    public function setErrorHandling($mode)
+    {
+        $this->errorHandlingHistory[] = $mode;
+    }
+
+    private function maybeThrow($sql)
+    {
+        if ($this->throwOn !== null && strpos($sql, $this->throwOn) !== false) {
+            throw new RuntimeException($this->throwMessage);
+        }
+    }
+
     public function query($sql)
     {
+        $this->maybeThrow($sql);
         $this->queries[] = $sql;
     }
 
     public function arrayQuery($sql)
     {
+        $this->maybeThrow($sql);
         $this->queries[] = $sql;
         foreach ($this->results as $pattern => $rows) {
             if (strpos($sql, $pattern) !== false) {
@@ -81,6 +129,13 @@ class SpyDB
 
 // eZSolr: presenza richiesta dal check 1 — stub minimo
 class eZSolr {}
+
+// eZDB: solo le costanti della modalità di gestione errori usate dal service
+class eZDB
+{
+    const ERROR_HANDLING_STANDARD   = 1;
+    const ERROR_HANDLING_EXCEPTIONS = 2;
+}
 
 // eZINI: stub configurabile; default = valori Piano C corretti per test 1-4
 class eZINI
@@ -509,6 +564,192 @@ assert_contains(
     $log11,
     'Link delete idempotente: log segnala già presente'
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 12: Trigger content/publish/a già presente SENZA il nostro event
+//          (tenant SaaS creato prima dell'installer che include event_workflowwebhook
+//          nel workflow "Post pubblicazione") → aggiunge l'event al workflow esistente.
+//          eZ ammette un solo trigger per (module_name, function_name, connect_type):
+//          un secondo INSERT INTO eztrigger violerebbe l'indice eztrigger_def_id.
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 12: trigger post_publish già presente senza il nostro event ─────────\n";
+
+$db12 = new SpyDB();
+// post_publish: nessun workflow con event_workflowwebhook → il setup deve intervenire
+$db12->results["'event_workflowwebhook'"]       = [['c' => 0]];
+// pre_delete già configurato (isola il test sul solo post_publish)
+$db12->results["'event_deleteworkflowwebhook'"] = [['c' => 1]];
+// trigger content/publish/a già esistente: workflow 1 "Post pubblicazione"
+$db12->results["function_name = 'publish'"]     = [['id' => 19, 'workflow_id' => 1]];
+// il workflow 1 ha già un event in posizione 1 → il nostro va in posizione 2
+$db12->results['next_placement']                = [['next_placement' => 2]];
+$db12->results['SELECT w.id, w.url FROM ocwebhook']  = [];
+$db12->results['SELECT id FROM ocwebhook WHERE url'] = [['id' => 1]];
+$db12->results["'delete_ocopendata'"]                = [['c' => 0]];
+
+$result12 = (new OCWebHookKafkaSetupService($db12))->run(['redpanda:9092'], 'cms');
+
+assert_true($result12['ok'], 'Trigger post_publish esistente: result[ok]=true');
+assert_false(
+    $db12->hasQuery('INSERT INTO eztrigger'),
+    'Trigger post_publish esistente: nessun INSERT INTO eztrigger (violerebbe eztrigger_def_id)'
+);
+assert_false(
+    $db12->hasQuery('INSERT INTO ezworkflow '),
+    'Trigger post_publish esistente: nessun INSERT INTO ezworkflow (nessun workflow orfano)'
+);
+assert_true(
+    $db12->hasQuery("VALUES (1, 0, 2, 'event_workflowwebhook')"),
+    'Trigger post_publish esistente: event_workflowwebhook aggiunto al workflow 1 in posizione 2'
+);
+
+$log12 = implode("\n", $result12['log']);
+assert_contains('event aggiunto al workflow esistente (ezworkflow.id=1, eztrigger.id=19)', $log12,
+    'Trigger post_publish esistente: log conferma event aggiunto al workflow esistente');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: stato "prima esecuzione" (workflow e webhook da creare), riusato dai
+// test di transazione. Il DB finto può lanciare un'eccezione su una query.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function firstRunDb(): SpyDB
+{
+    $db = new SpyDB();
+    $db->results['COUNT(*) AS c FROM ezworkflow_event'] = [['c' => 0]];
+    $db->results['SELECT id FROM ezworkflow WHERE name'] = [['id' => 42]];
+    $db->results['SELECT id FROM eztrigger']             = [['id' => 7]];
+    $db->results['SELECT w.id, w.url FROM ocwebhook']    = [];
+    $db->results['SELECT id FROM ocwebhook WHERE url']   = [['id' => 5]];
+    return $db;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 13: Esecuzione riuscita → una transazione, confermata (commit), mai annullata
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 13: transazione — esecuzione riuscita → commit ─────────────────────\n";
+
+$db13 = firstRunDb();
+$result13 = (new OCWebHookKafkaSetupService($db13))->run(['redpanda:9092'], 'cms');
+
+assert_true($result13['ok'], 'Transazione ok: result[ok]=true');
+assert_eq($db13->began, 1, 'Transazione ok: begin() chiamato una volta');
+assert_eq($db13->committed, 1, 'Transazione ok: commit() chiamato una volta');
+assert_eq($db13->rolledBack, 0, 'Transazione ok: nessun rollback');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 14: Un passo fallisce (ok=false) → rollback, nessun commit
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 14: transazione — passo fallito → rollback ─────────────────────────\n";
+
+$db14 = firstRunDb();
+// SELECT id FROM ezworkflow dopo l'INSERT non trova nulla → createWorkflow() ritorna false
+$db14->results['SELECT id FROM ezworkflow WHERE name'] = [];
+$result14 = (new OCWebHookKafkaSetupService($db14))->run(['redpanda:9092'], 'cms');
+
+assert_false($result14['ok'], 'Passo fallito: result[ok]=false');
+assert_eq($db14->began, 1, 'Passo fallito: begin() chiamato una volta');
+assert_eq($db14->rolledBack, 1, 'Passo fallito: rollback() chiamato una volta');
+assert_eq($db14->committed, 0, 'Passo fallito: nessun commit');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 15: Query che lancia eccezione → rollback + messaggio SQL reale nel log
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 15: transazione — eccezione DB → rollback e messaggio SQL nel log ──\n";
+
+$db15 = firstRunDb();
+$db15->throwOn      = 'INSERT INTO eztrigger';
+$db15->throwMessage = 'ERROR: duplicate key value violates unique constraint "eztrigger_def_id"';
+$result15 = (new OCWebHookKafkaSetupService($db15))->run(['redpanda:9092'], 'cms');
+
+assert_false($result15['ok'], 'Eccezione DB: result[ok]=false (non solleva verso il chiamante)');
+assert_eq($db15->rolledBack, 1, 'Eccezione DB: rollback() chiamato una volta');
+assert_eq($db15->committed, 0, 'Eccezione DB: nessun commit');
+
+$log15 = implode("\n", $result15['log']);
+assert_contains('duplicate key value violates unique constraint "eztrigger_def_id"', $log15,
+    'Eccezione DB: il log riporta il messaggio SQL reale');
+assert_contains('[error]', $log15, 'Eccezione DB: il log segnala [error]');
+assert_false(
+    $db15->hasQuery('INSERT INTO ocwebhook '),
+    'Eccezione DB: dopo l\'errore non viene eseguita nessuna ulteriore scrittura (webhook)'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 15b: Errore a metà → il log conserva i passi già eseguiti prima dell'errore
+//           (serve per capire fino a dove era arrivato il setup)
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 15b: errore a metà → il log conserva i passi già eseguiti ───────────\n";
+
+$db15b = firstRunDb();
+$db15b->throwOn      = 'INSERT INTO ocwebhook ';   // dopo workflow post_publish e pre_delete
+$db15b->throwMessage = 'ERROR: simulated failure on webhook insert';
+$result15b = (new OCWebHookKafkaSetupService($db15b))->run(['redpanda:9092'], 'cms');
+
+$log15b = implode("\n", $result15b['log']);
+assert_false($result15b['ok'], 'Errore a metà: result[ok]=false');
+assert_contains('[ok] Workflow configurato: ezworkflow.id=42, eztrigger.id=7', $log15b,
+    'Errore a metà: il log conserva il passo post_publish già eseguito');
+assert_contains('simulated failure on webhook insert', $log15b,
+    'Errore a metà: il log riporta l\'errore del DB');
+assert_eq($db15b->rolledBack, 1, 'Errore a metà: rollback() chiamato una volta');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 16: Gestione errori eZDB in modalità eccezioni durante il setup,
+//          ripristinata a STANDARD alla fine (anche dopo un errore)
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 16: modalità eccezioni eZDB impostata e ripristinata ────────────────\n";
+
+$db16 = firstRunDb();
+(new OCWebHookKafkaSetupService($db16))->run(['redpanda:9092'], 'cms');
+assert_eq(
+    $db16->errorHandlingHistory,
+    [eZDB::ERROR_HANDLING_EXCEPTIONS, eZDB::ERROR_HANDLING_STANDARD],
+    'Esecuzione riuscita: EXCEPTIONS durante il setup, poi ripristinata STANDARD'
+);
+
+$db16b = firstRunDb();
+$db16b->throwOn = 'INSERT INTO eztrigger';
+(new OCWebHookKafkaSetupService($db16b))->run(['redpanda:9092'], 'cms');
+assert_eq(
+    $db16b->errorHandlingHistory,
+    [eZDB::ERROR_HANDLING_EXCEPTIONS, eZDB::ERROR_HANDLING_STANDARD],
+    'Esecuzione con errore: STANDARD ripristinata comunque'
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 17: Precondizione non soddisfatta → nessuna transazione (nessuna scrittura)
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 17: precondizione fallita → nessuna transazione ─────────────────────\n";
+
+eZINI::setVars(['SearchSettings' => ['DelayedIndexing' => 'enabled', 'SearchEngine' => 'OCSearchEngine']]);
+$db17 = new SpyDB();
+$result17 = (new OCWebHookKafkaSetupService($db17))->run(['redpanda:9092'], 'cms');
+// ripristina il default dello stub per i test successivi
+eZINI::setVars(['SearchSettings' => ['DelayedIndexing' => 'disabled', 'SearchEngine' => 'OCSearchEngine']]);
+
+assert_false($result17['ok'], 'Precondizione fallita: result[ok]=false');
+assert_eq($db17->began, 0, 'Precondizione fallita: begin() non chiamato');
+assert_eq($db17->committed + $db17->rolledBack, 0, 'Precondizione fallita: nessun commit né rollback');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST 18: Brokers/topic vuoti → webhook saltato ma i workflow creati vanno confermati
+// ─────────────────────────────────────────────────────────────────────────────
+
+echo "\n── TEST 18: webhook saltato (broker vuoti) → workflow confermati con commit ─\n";
+
+$db18 = firstRunDb();
+$result18 = (new OCWebHookKafkaSetupService($db18))->run([], '');
+
+assert_true($result18['ok'], 'Webhook saltato: result[ok]=true');
+assert_eq($db18->committed, 1, 'Webhook saltato: commit() chiamato (i workflow creati restano)');
+assert_eq($db18->rolledBack, 0, 'Webhook saltato: nessun rollback');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Risultati
